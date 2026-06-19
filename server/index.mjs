@@ -355,8 +355,11 @@ async function authRoutes(req, res, pathname, db) {
     const requestUrl = new URL(req.url, `http://${req.headers.host}`);
     const requestedPath = requestUrl.searchParams.get("from_url") || "/";
     const returnPath = requestedPath.startsWith("/") && !requestedPath.startsWith("//") ? requestedPath : "/";
+    const requestedOrigin = requestUrl.searchParams.get("origin");
+    const allowedOrigins = new Set([frontendUrl, "http://127.0.0.1:5173", "https://manga-cards.pages.dev"]);
+    const returnOrigin = allowedOrigins.has(requestedOrigin) ? requestedOrigin : frontendUrl;
     db.oauthStates = db.oauthStates.filter((item) => item.expires_at > Date.now());
-    db.oauthStates.push({ state, return_path: returnPath, expires_at: Date.now() + 10 * 60 * 1000 });
+    db.oauthStates.push({ state, return_path: returnPath, return_origin: returnOrigin, expires_at: Date.now() + 10 * 60 * 1000 });
     await writeDb(db);
     const callback = `${process.env.API_URL || `http://127.0.0.1:${port}`}/api/auth/google/callback`;
     const target = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -376,7 +379,7 @@ async function authRoutes(req, res, pathname, db) {
     let user = db.users.find((item) => item.email === info.email);
     if (!user) { user = { id: id(), email: info.email, full_name: info.name || "", avatar_url: info.picture, role: db.users.length ? "user" : "admin", provider: "google", created_date: new Date().toISOString() }; db.users.push(user); seedProfile(db, user); }
     const token = createSession(db, user.id); await writeDb(db);
-    const target = new URL(oauthState.return_path, frontendUrl); target.searchParams.set("access_token", token);
+    const target = new URL(oauthState.return_path, oauthState.return_origin || frontendUrl); target.searchParams.set("access_token", token);
     return redirect(res, target.toString());
   }
   return false;

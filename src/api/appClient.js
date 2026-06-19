@@ -103,7 +103,8 @@ export const appClient = {
       window.location.href = "/login";
     },
     loginWithProvider: (provider, fromUrl = "/") => {
-      window.location.href = `/api/auth/${provider}?from_url=${encodeURIComponent(fromUrl)}`;
+      const query = new URLSearchParams({ from_url: fromUrl, origin: window.location.origin });
+      window.location.href = `/api/auth/${provider}?${query}`;
     },
     resetPasswordRequest: (email) => request("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
     resetPassword: ({ resetToken, newPassword }) => request("/auth/reset-password", { method: "POST", body: JSON.stringify({ resetToken, newPassword }) }),
