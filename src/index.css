@@ -119,3 +119,83 @@
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
 }
+@keyframes wake-float {
+  0%, 100% { transform: translateY(0) rotateY(-8deg) rotateX(4deg); }
+  50% { transform: translateY(-14px) rotateY(8deg) rotateX(-2deg); }
+}
+
+@keyframes wake-shine {
+  0% { transform: translateX(-180%) skewX(-18deg); }
+  55%, 100% { transform: translateX(240%) skewX(-18deg); }
+}
+
+@keyframes wake-progress {
+  0% { transform: translateX(-70%); }
+  50% { transform: translateX(35%); }
+  100% { transform: translateX(130%); }
+}
+
+@keyframes wake-drift {
+  from { background-position: 0 0; }
+  to { background-position: 120px 80px; }
+}
+
+.wake-stars {
+  position: absolute;
+  inset: 0;
+  opacity: .32;
+  background-image: radial-gradient(circle, rgba(255,255,255,.9) 1px, transparent 1.5px);
+  background-size: 46px 46px;
+  animation: wake-drift 18s linear infinite;
+}
+
+.wake-orb {
+  position: absolute;
+  width: 45vw;
+  height: 45vw;
+  border-radius: 999px;
+  filter: blur(90px);
+  opacity: .25;
+}
+
+.wake-orb-one { top: -18vw; left: -10vw; background: #7c3aed; }
+.wake-orb-two { right: -12vw; bottom: -20vw; background: #f59e0b; }
+.wake-card-wrap { perspective: 900px; }
+.wake-card {
+  position: relative;
+  width: 156px;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 2px;
+  background: linear-gradient(135deg, #fde68a, #f59e0b 38%, #7c3aed 72%, #f0abfc);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.15), 0 28px 80px rgba(124,58,237,.35), 0 0 45px rgba(245,158,11,.25);
+  animation: wake-float 4s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+
+.wake-card::after {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent);
+  animation: wake-shine 3.2s ease-in-out infinite;
+}
+
+.wake-card-inner {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(253,230,138,.35);
+  border-radius: 14px;
+  background: radial-gradient(circle at 50% 30%, rgba(124,58,237,.55), transparent 42%), linear-gradient(145deg, #151026, #090611);
+}
+
+.wake-progress { width: 55%; animation: wake-progress 2.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wake-card, .wake-card::after, .wake-progress, .wake-stars { animation: none; }
+}

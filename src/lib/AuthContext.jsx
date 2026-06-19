@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { appClient } from "@/api/appClient";
+import { API_WAKE_EVENT, appClient } from "@/api/appClient";
 
 const AuthContext = createContext(null);
 
@@ -8,6 +8,13 @@ export function AuthProvider({ children }) {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState(null);
+  const [serverWake, setServerWake] = useState({ status: "checking", attempt: 0 });
+
+  useEffect(() => {
+    const onWakeStatus = (event) => setServerWake(event.detail);
+    window.addEventListener(API_WAKE_EVENT, onWakeStatus);
+    return () => window.removeEventListener(API_WAKE_EVENT, onWakeStatus);
+  }, []);
 
   const checkUserAuth = useCallback(async () => {
     setIsLoadingAuth(true);
@@ -37,6 +44,7 @@ export function AuthProvider({ children }) {
       authError,
       appPublicSettings: null,
       authChecked,
+      serverWake,
       logout,
       navigateToLogin,
       checkUserAuth,

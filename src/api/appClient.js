@@ -1,4 +1,11 @@
 const TOKEN_KEY = "manga_cards_token";
+const API_WAKE_EVENT = "manga-api-wake-status";
+
+const emitApiStatus = (status, attempt = 0) => {
+  window.dispatchEvent(new CustomEvent(API_WAKE_EVENT, { detail: { status, attempt } }));
+};
+
+const wait = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration));
 
 const params = new URLSearchParams(window.location.search);
 const tokenFromUrl = params.get("access_token");
@@ -10,18 +17,52 @@ if (tokenFromUrl) {
 }
 
 const request = async (path, options = {}) => {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const response = await fetch(`/api${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || `Erreur ${response.status}`);
-  return body;
+  const maxAttempts = options.wakeRetry === false ? 1 : 16;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const response = await fetch(`/api${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...options.headers,
+        },
+      });
+      const contentType = response.headers.get("content-type") || "";
+      const isJson = contentType.includes("application/json");
+      const responseBody = isJson ? await response.json().catch(() => ({})) : {};
+      const isSleepingResponse = !isJson || [502, 503, 504].includes(response.status);
+
+      if (isSleepingResponse && attempt < maxAttempts) {
+        emitApiStatus("waking", attempt);
+        await wait(Math.min(5000, 1200 + attempt * 300));
+        continue;
+      }
+      if (!response.ok) {
+        const responseError = new Error(responseBody.message || `Erreur ${response.status}`);
+        responseError.noWakeRetry = true;
+        throw responseError;
+      }
+      if (!isJson) throw new Error("Le serveur de jeu est encore en cours de réveil.");
+      emitApiStatus("ready", attempt);
+      return responseBody;
+    } catch (error) {
+      lastError = error;
+      if (error.noWakeRetry) {
+        emitApiStatus("ready", attempt);
+        throw error;
+      }
+      if (attempt >= maxAttempts) break;
+      emitApiStatus("waking", attempt);
+      await wait(Math.min(5000, 1200 + attempt * 300));
+    }
+  }
+
+  emitApiStatus("error", maxAttempts);
+  throw lastError || new Error("Serveur temporairement indisponible.");
 };
 
 const entity = (name) => ({
@@ -96,3 +137,5 @@ export const appClient = {
     },
   },
 };
+
+export { API_WAKE_EVENT };
