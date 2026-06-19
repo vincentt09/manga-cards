@@ -175,7 +175,7 @@ export default function Navbar() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.94, y: 18 }}
             transition={{ type: "spring", stiffness: 260, damping: 24 }}
-            className="fixed left-2 bottom-[calc(9.5rem+env(safe-area-inset-bottom))] z-[65] h-[min(62vh,620px)] min-h-[360px] w-[calc(100vw-1rem)] origin-bottom-left sm:left-4 sm:w-[420px] md:bottom-20"
+            className="fixed left-2 top-[calc(4.25rem+env(safe-area-inset-top))] bottom-[calc(9.25rem+env(safe-area-inset-bottom))] z-[65] w-[calc(100vw-1rem)] min-h-0 origin-bottom-left sm:left-4 sm:top-auto sm:bottom-20 sm:h-[min(68vh,620px)] sm:w-[420px]"
           >
             <GeneralChatPanel onClose={() => setIsChatOpen(false)} />
           </motion.div>

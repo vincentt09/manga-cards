@@ -18,22 +18,24 @@ import { trackBoosterOpened, trackCoinsSpent } from "@/lib/questTracker";
 import { logTransaction } from "@/lib/transactionLogger";
 
 function getCoverImages(booster, imageOverrides = [], catalog = CARD_POOL) {
-  const chars = catalog.filter(c => booster.is_custom ? c.collection_id === booster.id : c.anime === booster.anime);
-  // Get unique characters (one per character name)
-  const uniqueChars = [];
+  const chars = catalog.filter((card) => {
+    if (booster.collector_only && !card.is_collector) return false;
+    if (booster.is_custom || card.collection_id === booster.id) return card.collection_id === booster.id;
+    if (booster.is_premium) return true;
+    return card.anime === booster.anime;
+  });
+  const covers = [];
   const seen = new Set();
-  for (const char of chars) {
-    if (!seen.has(char.name)) {
-      seen.add(char.name);
-      uniqueChars.push(char);
-    }
+  for (const card of chars) {
+    if (seen.has(card.name)) continue;
+    const override = imageOverrides.find(item => item.card_id === card.id);
+    const imageUrl = override?.image_url || card.image_url;
+    if (!imageUrl) continue;
+    seen.add(card.name);
+    covers.push(imageUrl);
+    if (covers.length === 3) break;
   }
-  
-  // Get first 3 unique characters - utiliser UNIQUEMENT les images admin
-  return uniqueChars.slice(0, 3).map(c => {
-    const override = imageOverrides.find(o => o.card_id === c.id);
-    return override?.image_url || null;
-  }).filter(url => url !== null);
+  return covers;
 }
 
 const cleanBoosterDescription = (description = "") => description
@@ -41,7 +43,7 @@ const cleanBoosterDescription = (description = "") => description
   .replace(/cartes rares garanties/giu, "cartes rares");
 
 function BoosterCard({ booster, onOpen, onPreview, canAfford, isOpening, isLocked, playerLevel, price, imageOverrides = [], allCards = [] }) {
-  const covers = (booster.is_custom || booster.anime) ? getCoverImages(booster, imageOverrides, allCards) : [];
+  const covers = getCoverImages(booster, imageOverrides, allCards);
   const cardCount = allCards.filter(c => booster.is_custom ? c.collection_id === booster.id : (booster.is_premium ? true : c.anime === booster.anime)).length;
   const isUnavailable = booster.availability && booster.availability !== "available";
 
@@ -515,6 +517,17 @@ export default function Boosters() {
 
   const handleCardRevealed = (card) => {
     if (card.rarity === "normale") return;
+    if (card.isDuplicate) {
+      const levelsGained = Number(card.levelsGained || 0);
+      toast({
+        title: levelsGained > 0 ? "Carte améliorée !" : "Duplicata empilé",
+        description: levelsGained > 0
+          ? `${card.name} passe au niveau ${card.level}.`
+          : `${card.name} est ajouté à sa pile · ×${card.stackCount || 2} exemplaires.`,
+        duration: 4000,
+      });
+      return;
+    }
     const labels = {
       legendaire: "CARTE LÉGENDAIRE !",
       "secrète": "CARTE SECRÈTE !",
