@@ -23,6 +23,7 @@ const frontendUrl = process.env.APP_URL || "http://127.0.0.1:5173";
 const mongoUri = process.env.MONGODB_URI;
 const mongoDatabaseName = process.env.MONGODB_DATABASE || "manga_cards";
 let mongoClient;
+let mongoConnectPromise;
 let warnedAboutMongo = false;
 let dbCache = null;
 
@@ -93,9 +94,22 @@ const localDb = () => {
 const mongoDb = async () => {
   if (!mongoUri) return null;
   if (!mongoClient) {
-    mongoClient = new MongoClient(mongoUri);
-    await mongoClient.connect();
-    console.log(`MongoDB connecte : ${mongoDatabaseName}`);
+    if (!mongoConnectPromise) {
+      mongoConnectPromise = (async () => {
+        const client = new MongoClient(mongoUri);
+        try {
+          await client.connect();
+          mongoClient = client;
+          console.log(`MongoDB connecte : ${mongoDatabaseName}`);
+        } catch (error) {
+          await client.close().catch(() => {});
+          throw error;
+        } finally {
+          mongoConnectPromise = null;
+        }
+      })();
+    }
+    await mongoConnectPromise;
   }
   return mongoClient.db(mongoDatabaseName);
 };
@@ -899,4 +913,5 @@ const server = http.createServer((req, res) => {
   handleRequest(req, res);
 });
 
-server.listen(port, "127.0.0.1", () => console.log(`API Manga Cards : http://127.0.0.1:${port}`));
+const host = process.env.HOST || "0.0.0.0";
+server.listen(port, host, () => console.log(`API Manga Cards : http://${host}:${port}`));
