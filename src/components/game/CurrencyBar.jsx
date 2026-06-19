@@ -76,7 +76,7 @@ export default function CurrencyBar({ profile, cards = [], unlockedTalents = [] 
             {/* Passive income indicator */}
             {incomePerTick > 0 && (
               <motion.div 
-                className="hidden sm:flex items-center gap-1.5 bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border border-yellow-500/30 rounded-full px-3 py-1.5 relative shadow-lg shadow-yellow-500/10"
+                className="flex items-center gap-1 bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border border-yellow-500/30 rounded-full px-2 sm:px-3 py-1.5 relative shadow-lg shadow-yellow-500/10 min-w-0"
                 animate={{ 
                   boxShadow: ['0 0 10px rgba(234, 179, 8, 0.2)', '0 0 20px rgba(234, 179, 8, 0.4)', '0 0 10px rgba(234, 179, 8, 0.2)']
                 }}
@@ -88,7 +88,7 @@ export default function CurrencyBar({ profile, cards = [], unlockedTalents = [] 
                 >
                   <TrendingUp className="w-3.5 h-3.5 text-yellow-400" />
                 </motion.div>
-                <span className="text-xs font-bold text-yellow-300" title="12 meilleures cartes + niveaux + talents économiques">+{incomePerTick.toLocaleString()}/min</span>
+                <span className="truncate text-[11px] font-bold text-yellow-300 sm:text-xs" title="12 meilleures cartes + niveaux + talents économiques">+{incomePerTick.toLocaleString()}/min</span>
                 <AnimatePresence>
                   {showIncome && (
                     <motion.span
