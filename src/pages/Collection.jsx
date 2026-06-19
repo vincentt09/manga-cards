@@ -112,16 +112,16 @@ export default function Collection() {
       <Navbar />
       <CurrencyBar profile={profile} cards={cards} />
 
-      <div className="max-w-[1600px] mx-auto px-4 py-6">
+      <div className="max-w-[1600px] mx-auto px-3 sm:px-4 py-4 sm:py-6">
         {/* En-tête avec statistiques */}
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8 bg-gradient-to-br from-card via-card to-secondary/20 rounded-3xl p-6 border border-border/50 shadow-2xl"
+          className="mb-5 sm:mb-8 bg-gradient-to-br from-card via-card to-secondary/20 rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-border/50 shadow-2xl"
         >
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6">
             <div>
-              <h1 className="font-display text-3xl font-bold tracking-wide bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+              <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-wide bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
                 Ma Collection
               </h1>
               <p className="text-sm text-muted-foreground mt-2 flex items-center gap-2">
@@ -146,7 +146,7 @@ export default function Collection() {
           </div>
           
           {/* Barres de progression par rareté */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
             {[
               { key: "manga_god", label: "Manga God", color: "from-cyan-500 to-blue-500", count: stats.manga_god, textColor: "text-cyan-400" },
               { key: "secrète", label: "Secrète", color: "from-rose-500 to-pink-500", count: stats.secrète, textColor: "text-rose-400" },
@@ -156,7 +156,7 @@ export default function Collection() {
               <motion.div 
                 key={rarity.key}
                 whileHover={{ scale: 1.03 }}
-                className="bg-gradient-to-br from-secondary/40 to-secondary/20 rounded-xl p-4 border border-border/40 shadow-lg"
+                className="bg-gradient-to-br from-secondary/40 to-secondary/20 rounded-xl p-3 sm:p-4 border border-border/40 shadow-lg"
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{rarity.label}</span>
@@ -260,7 +260,7 @@ export default function Collection() {
 
         {/* Grille de cartes */}
         {isLoadingCards ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-4">
             {Array.from({ length: 14 }).map((_, i) => (
               <CardSkeleton key={i} />
             ))}
@@ -280,7 +280,7 @@ export default function Collection() {
         ) : (
           <motion.div
             className={viewMode === "grid" 
-              ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4"
+              ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-4"
               : "flex flex-col gap-3"
             }
             layout

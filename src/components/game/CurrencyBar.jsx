@@ -58,9 +58,9 @@ export default function CurrencyBar({ profile, cards = [], unlockedTalents = [] 
   if (!profile) return null;
 
   return (
-    <div className="sticky top-14 z-30 bg-background/90 backdrop-blur-xl border-b border-border shadow-sm">
-      <div className="max-w-5xl mx-auto px-4 py-2.5">
-        <div className="flex items-center gap-4">
+    <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-30 bg-background/90 backdrop-blur-xl border-b border-border shadow-sm md:top-14">
+      <div className="max-w-5xl mx-auto px-2.5 sm:px-4 py-2.5">
+        <div className="flex items-center gap-2 sm:gap-4">
           {/* Level Badge */}
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shrink-0">
@@ -105,13 +105,13 @@ export default function CurrencyBar({ profile, cards = [], unlockedTalents = [] 
               </motion.div>
             )}
 
-            <div className="flex items-center gap-1.5 bg-secondary/50 rounded-full px-3 py-1.5 relative">
+            <div className="flex items-center gap-1 bg-secondary/50 rounded-full px-2.5 sm:px-3 py-1.5 relative min-w-0">
               <Coins className="w-4 h-4 text-yellow-400" />
-              <span className="text-sm font-semibold">{(displayCoins || 0).toLocaleString()}</span>
+              <span className="text-xs sm:text-sm font-semibold tabular-nums truncate">{(displayCoins || 0).toLocaleString()}</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-secondary/50 rounded-full px-3 py-1.5">
+            <div className="flex items-center gap-1 bg-secondary/50 rounded-full px-2.5 sm:px-3 py-1.5">
               <Gem className="w-4 h-4 text-cyan-400" />
-              <span className="text-sm font-semibold">{profile.gems || 0}</span>
+              <span className="text-xs sm:text-sm font-semibold tabular-nums">{profile.gems || 0}</span>
             </div>
           </div>
         </div>

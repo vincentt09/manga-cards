@@ -40,7 +40,10 @@ export default function Navbar() {
   return (
     <>
       {/* Top Bar */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border shadow-lg">
+      <nav
+        className="fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border shadow-lg"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <div className="max-w-5xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
             <Link to="/" className="flex items-center gap-2">
@@ -82,6 +85,7 @@ export default function Navbar() {
           </div>
         </div>
       </nav>
+      <div className="h-[calc(3.5rem+env(safe-area-inset-top))] md:hidden" aria-hidden="true" />
 
       {/* Slide-over Menu */}
       <AnimatePresence>
@@ -102,7 +106,7 @@ export default function Navbar() {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 h-full w-72 bg-card border-l border-border z-50 shadow-2xl overflow-y-auto"
+              className="fixed top-0 right-0 h-full w-[min(20rem,100vw)] bg-card border-l border-border z-[70] shadow-2xl overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
             >
               <div className="p-6">
                 {/* Header */}
@@ -171,7 +175,7 @@ export default function Navbar() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.94, y: 18 }}
             transition={{ type: "spring", stiffness: 260, damping: 24 }}
-            className="fixed left-4 bottom-36 md:bottom-20 z-50 w-[calc(100vw-2rem)] sm:w-[420px] h-[min(68vh,620px)] min-h-[420px] origin-bottom-left"
+            className="fixed left-2 bottom-[calc(9.5rem+env(safe-area-inset-bottom))] z-[65] h-[min(62vh,620px)] min-h-[360px] w-[calc(100vw-1rem)] origin-bottom-left sm:left-4 sm:w-[420px] md:bottom-20"
           >
             <GeneralChatPanel onClose={() => setIsChatOpen(false)} />
           </motion.div>
@@ -183,7 +187,7 @@ export default function Navbar() {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         whileHover={{ scale: 1.05, y: -2 }}
         whileTap={{ scale: 0.96 }}
-        className="fixed left-4 bottom-20 md:bottom-5 z-[60]"
+        className="fixed left-3 bottom-[calc(5.4rem+env(safe-area-inset-bottom))] z-[60] md:left-4 md:bottom-5"
       >
         <button
           type="button"
@@ -200,7 +204,7 @@ export default function Navbar() {
             <MessageCircle className="w-5 h-5" />
             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-card" />
           </span>
-          <span className="text-sm font-bold">Chat général</span>
+          <span className="hidden text-sm font-bold min-[390px]:inline">Chat général</span>
         </button>
       </motion.div>
     </>
