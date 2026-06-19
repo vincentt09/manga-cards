@@ -1,0 +1,350 @@
+import React, { useState } from "react";
+import { appClient } from "@/api/appClient";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import { ShoppingBag, Tag, Search, Filter, X, Plus, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/components/ui/use-toast";
+import Navbar from "@/components/game/Navbar";
+import CurrencyBar from "@/components/game/CurrencyBar";
+import { RARITY_CONFIG, RARITY_ORDER } from "@/lib/gameData";
+import { trackCardSold } from "@/lib/questTracker";
+import { logTransaction } from "@/lib/transactionLogger";
+import { useAuth } from "@/lib/AuthContext";
+import CardListing from "@/components/marketplace/CardListing";
+import FrameListingCard from "@/components/marketplace/FrameListingCard";
+
+export default function Marketplace() {
+  const [marketTab, setMarketTab] = useState("cards"); // cards | frames
+  const [tab, setTab] = useState("browse"); // browse | mine
+  const [search, setSearch] = useState("");
+  const [rarityFilter, setRarityFilter] = useState("all");
+  const [showSellModal, setShowSellModal] = useState(false);
+  const [buyingId, setBuyingId] = useState(null);
+  const [isListing, setIsListing] = useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { user } = useAuth();
+
+  const { data: cardListings = [] } = useQuery({
+    queryKey: ["card-listings"],
+    queryFn: () => appClient.entities.MarketListing.filter({ status: "active" }, "-created_date", 100),
+    refetchInterval: 15000,
+  });
+
+  const { data: frameListings = [] } = useQuery({
+    queryKey: ["frame-listings"],
+    queryFn: () => appClient.entities.FrameListing.filter({ status: "active" }, "-created_date", 50),
+    refetchInterval: 15000,
+  });
+
+  const { data: profiles = [] } = useQuery({
+    queryKey: ["profile"],
+    queryFn: () => appClient.entities.PlayerProfile.list(),
+  });
+
+  const { data: myCards = [] } = useQuery({
+    queryKey: ["cards"],
+    queryFn: () => appClient.entities.Card.list("-created_date", 200),
+  });
+  
+  const { data: imageOverrides = [] } = useQuery({
+    queryKey: ["cardImageOverrides"],
+    queryFn: () => appClient.entities.CardImageOverride.list(),
+  });
+
+  const profile = profiles[0];
+  const myCardListings = cardListings.filter(l => l.seller_id === user?.id);
+  const otherCardListings = cardListings.filter(l => l.seller_id !== user?.id);
+  const myFrameListings = frameListings.filter(l => l.seller_id === user?.id);
+  const otherFrameListings = frameListings.filter(l => l.seller_id !== user?.id);
+
+  const displayCardListings = (tab === "browse" ? otherCardListings : myCardListings)
+    .filter(l => {
+      const matchSearch = !search || l.card_name?.toLowerCase().includes(search.toLowerCase()) || l.card_anime?.toLowerCase().includes(search.toLowerCase());
+      const matchRarity = rarityFilter === "all" || l.card_rarity === rarityFilter;
+      return matchSearch && matchRarity;
+    })
+    .sort((a, b) => (RARITY_ORDER[b.card_rarity] || 0) - (RARITY_ORDER[a.card_rarity] || 0));
+
+  const displayFrameListings = (tab === "browse" ? otherFrameListings : myFrameListings)
+    .filter(l => {
+      const matchSearch = !search || l.frame_name?.toLowerCase().includes(search.toLowerCase());
+      const matchRarity = rarityFilter === "all" || l.frame_rarity === rarityFilter;
+      return matchSearch && matchRarity;
+    })
+    .sort((a, b) => (RARITY_ORDER[b.frame_rarity] || 0) - (RARITY_ORDER[a.frame_rarity] || 0));
+
+  const handleBuyCard = async (listing) => {
+    if (!profile) return;
+    if ((profile.coins || 0) < listing.price) {
+      toast({ title: "Pièces insuffisantes", description: `Il te faut ${listing.price.toLocaleString()} pièces.`, variant: "destructive" });
+      return;
+    }
+    setBuyingId(listing.id);
+
+    await appClient.entities.Card.create({
+      name: listing.card_name, anime: listing.card_anime, rarity: listing.card_rarity,
+      variant: listing.card_variant, power: listing.card_power, attack: listing.card_attack,
+      defense: listing.card_defense, speed: listing.card_speed, level: listing.card_level || 1,
+      image_url: listing.card_image_url, duplicates: 1, is_favorite: false,
+    });
+
+    await appClient.entities.PlayerProfile.update(profile.id, { coins: (profile.coins || 0) - listing.price });
+    await appClient.entities.MarketListing.update(listing.id, { status: "sold", buyer_id: user?.id });
+
+    queryClient.invalidateQueries({ queryKey: ["card-listings"] });
+    queryClient.invalidateQueries({ queryKey: ["profile"] });
+    queryClient.invalidateQueries({ queryKey: ["cards"] });
+    setBuyingId(null);
+
+    toast({ title: `✅ ${listing.card_name} achetée !`, description: `−${listing.price.toLocaleString()} pièces` });
+    logTransaction({ type: "buy", description: `Achat : ${listing.card_name}`, amount: -listing.price, card_name: listing.card_name, card_rarity: listing.card_rarity });
+  };
+
+  const handleBuyFrame = async (listing) => {
+    if (!profile) return;
+    if ((profile.coins || 0) < listing.price) {
+      toast({ title: "Pièces insuffisantes", variant: "destructive" });
+      return;
+    }
+    setBuyingId(listing.id);
+
+    await appClient.entities.PlayerFrame.create({
+      frame_id: listing.frame_id,
+      is_unlocked: true,
+      card_id: null,
+      unlocked_date: new Date().toISOString(),
+    });
+
+    await appClient.entities.PlayerProfile.update(profile.id, { coins: (profile.coins || 0) - listing.price });
+    await appClient.entities.FrameListing.update(listing.id, { status: "sold", buyer_id: user?.id });
+
+    queryClient.invalidateQueries({ queryKey: ["frame-listings"] });
+    queryClient.invalidateQueries({ queryKey: ["profile"] });
+    setBuyingId(null);
+
+    toast({ title: `✅ ${listing.frame_name} acheté !`, description: `−${listing.price.toLocaleString()} pièces` });
+  };
+
+  const handleCancelCard = async (listing) => {
+    await appClient.entities.Card.create({
+      name: listing.card_name, anime: listing.card_anime, rarity: listing.card_rarity,
+      variant: listing.card_variant, power: listing.card_power, attack: listing.card_attack,
+      defense: listing.card_defense, speed: listing.card_speed, level: listing.card_level || 1,
+      image_url: listing.card_image_url, duplicates: 1, is_favorite: false,
+    });
+    await appClient.entities.MarketListing.update(listing.id, { status: "cancelled" });
+    queryClient.invalidateQueries({ queryKey: ["card-listings"] });
+    queryClient.invalidateQueries({ queryKey: ["cards"] });
+    toast({ title: "Annulé", description: `${listing.card_name} rendue à ta collection.` });
+  };
+
+  const handleCancelFrame = async (listing) => {
+    await appClient.entities.PlayerFrame.create({ frame_id: listing.frame_id, is_unlocked: true, card_id: null, unlocked_date: new Date().toISOString() });
+    await appClient.entities.FrameListing.update(listing.id, { status: "cancelled" });
+    queryClient.invalidateQueries({ queryKey: ["frame-listings"] });
+    toast({ title: "Annulé", description: `${listing.frame_name} rendu à ton inventaire.` });
+  };
+
+  const handleSellCard = async (card, price) => {
+    setIsListing(true);
+    await appClient.entities.Card.delete(card.id);
+    await appClient.entities.MarketListing.create({
+      card_id: card.id, seller_id: user?.id, seller_name: user?.full_name || "Joueur",
+      card_name: card.name, card_anime: card.anime, card_rarity: card.rarity,
+      card_variant: card.variant, card_power: card.power, card_attack: card.attack,
+      card_defense: card.defense, card_speed: card.speed, card_level: card.level || 1,
+      card_image_url: card.image_url, price, status: "active",
+    });
+    queryClient.invalidateQueries({ queryKey: ["card-listings"] });
+    queryClient.invalidateQueries({ queryKey: ["cards"] });
+    setIsListing(false);
+    setShowSellModal(false);
+    trackCardSold();
+    logTransaction({ type: "sell", description: `Vente : ${card.name}`, amount: price, card_name: card.name, card_rarity: card.rarity });
+    toast({ title: `🏷️ ${card.name} en vente !`, description: `Prix : ${price.toLocaleString()} pièces` });
+  };
+
+  const handleSellFrame = async (playerFrame, frameDef, price) => {
+    setIsListing(true);
+    await appClient.entities.PlayerFrame.delete(playerFrame.id);
+    await appClient.entities.FrameListing.create({
+      frame_id: frameDef.id,
+      frame_name: frameDef.name,
+      frame_rarity: frameDef.rarity,
+      frame_effect: frameDef.effect,
+      seller_id: user?.id,
+      seller_name: user?.full_name || "Joueur",
+      price,
+      status: "active",
+    });
+    queryClient.invalidateQueries({ queryKey: ["frame-listings"] });
+    setIsListing(false);
+    setShowSellModal(false);
+    toast({ title: `🏷️ ${frameDef.name} en vente !`, description: `Prix : ${price.toLocaleString()} pièces` });
+  };
+
+  return (
+    <div className="min-h-screen pb-20 md:pb-4 md:pt-14">
+      <Navbar />
+      <CurrencyBar profile={profile} cards={myCards} />
+
+      <div className="max-w-5xl mx-auto px-4 py-4">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h1 className="font-display text-2xl font-bold tracking-wide flex items-center gap-2">
+              <ShoppingBag className="w-6 h-6 text-primary" />Hôtel des Ventes
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {marketTab === "cards" ? `${otherCardListings.length} carte${otherCardListings.length > 1 ? "s" : ""}` : `${otherFrameListings.length} cadre${otherFrameListings.length > 1 ? "s" : ""}`} en vente
+            </p>
+          </div>
+          <Button onClick={() => setShowSellModal(true)} className="bg-gradient-to-r from-primary to-accent font-heading text-sm">
+            <Plus className="w-4 h-4 mr-1.5" />Vendre
+          </Button>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+          {[
+            { id: "cards", label: `Cartes (${otherCardListings.length})` },
+            { id: "frames", label: `Cadres (${otherFrameListings.length})` },
+          ].map(t => (
+            <button key={t.id} onClick={() => { setMarketTab(t.id); setTab("browse"); }}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${marketTab === t.id ? "bg-primary text-white" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}`}>
+              {t.label}
+            </button>
+          ))}
+          <div className="ml-auto flex gap-2">
+            {[{ id: "browse", label: "Parcourir" }, { id: "mine", label: "Mes annonces" }].map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${tab === t.id ? "bg-primary/20 text-primary border border-primary/30" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2 mb-5">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Rechercher..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 bg-secondary/50" />
+          </div>
+          <Select value={rarityFilter} onValueChange={setRarityFilter}>
+            <SelectTrigger className="w-36 bg-secondary/50">
+              <Filter className="w-3.5 h-3.5 mr-1.5" /><SelectValue placeholder="Rareté" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes</SelectItem>
+              {Object.entries(RARITY_CONFIG).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {marketTab === "cards" ? (
+          displayCardListings.length === 0 ? (
+            <div className="text-center py-20">
+              <ShoppingBag className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-30" />
+              <p className="text-muted-foreground font-medium">{tab === "mine" ? "Aucune annonce active" : "Aucune carte en vente"}</p>
+            </div>
+          ) : (
+            <motion.div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3" layout>
+              <AnimatePresence>
+                {displayCardListings.map(listing => (
+                  <CardListing key={listing.id} listing={listing} onBuy={handleBuyCard} onCancel={handleCancelCard}
+                    isOwnListing={listing.seller_id === user?.id} isBuying={buyingId === listing.id}
+                    imageOverrides={imageOverrides} />
+                ))}
+              </AnimatePresence>
+            </motion.div>
+          )
+        ) : (
+          displayFrameListings.length === 0 ? (
+            <div className="text-center py-20">
+              <ShoppingBag className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-30" />
+              <p className="text-muted-foreground font-medium">{tab === "mine" ? "Aucune annonce active" : "Aucun cadre en vente"}</p>
+            </div>
+          ) : (
+            <motion.div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" layout>
+              <AnimatePresence>
+                {displayFrameListings.map(listing => (
+                  <FrameListingCard key={listing.id} listing={listing} onBuy={handleBuyFrame} onCancel={handleCancelFrame}
+                    isOwnListing={listing.seller_id === user?.id} isBuying={buyingId === listing.id} />
+                ))}
+              </AnimatePresence>
+            </motion.div>
+          )
+        )}
+      </div>
+
+      <AnimatePresence>
+        {showSellModal && (
+          <SellModal
+            myCards={myCards}
+            myFrames={[]} // TODO: fetch unlocked frames
+            activeCardListings={myCardListings}
+            activeFrameListings={myFrameListings}
+            onSellCard={handleSellCard}
+            onSellFrame={handleSellFrame}
+            marketTab={marketTab}
+            onClose={() => setShowSellModal(false)}
+            isListing={isListing}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Sell Modal (simplified) ─────────────────────────────────────────────────
+function SellModal({ myCards, activeCardListings, onSellCard, onClose, isListing, marketTab }) {
+  const [selectedCardId, setSelectedCardId] = useState("");
+  const [price, setPrice] = useState("");
+  const listedCardIds = new Set(activeCardListings.map(l => l.card_id));
+  const availableCards = myCards.filter(c => !listedCardIds.has(c.id));
+  const selectedCard = availableCards.find(c => c.id === selectedCardId);
+  const minPrice = selectedCard ? Math.round({ common: 50, rare: 200, ultra_rare: 500, epic: 1500, legendary: 5000, secret: 15000 }[selectedCard.rarity] || 50) : 1;
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <motion.div initial={{ scale: 0.9, y: 30 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-card rounded-2xl border border-border w-full max-w-md p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="font-display font-bold text-lg flex items-center gap-2"><Tag className="w-5 h-5 text-primary" />Vendre</h2>
+          <button onClick={onClose}><X className="w-4 h-4" /></button>
+        </div>
+
+        {marketTab === "cards" ? (
+          availableCards.length === 0 ? (
+            <div className="text-center py-8"><AlertCircle className="w-10 h-10 text-muted-foreground mx-auto mb-3" /><p className="text-muted-foreground">Aucune carte disponible</p></div>
+          ) : (
+            <>
+              <Select value={selectedCardId} onValueChange={setSelectedCardId}>
+                <SelectTrigger className="bg-secondary/50 mb-3"><SelectValue placeholder="Choisir une carte..." /></SelectTrigger>
+                <SelectContent>
+                  {availableCards.map(c => <SelectItem key={c.id} value={c.id}>{c.name} — {c.power} PWR</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {selectedCard && (
+                <div className="mb-4">
+                  <label className="text-xs text-muted-foreground mb-2 block">Prix (min. {minPrice})</label>
+                  <Input type="number" value={price} onChange={e => setPrice(e.target.value)} className="bg-secondary/50" min={minPrice} />
+                </div>
+              )}
+              <Button className="w-full" disabled={!selectedCardId || !price || Number(price) < minPrice || isListing}
+                onClick={() => onSellCard(selectedCard, Number(price))}>
+                {isListing ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Vendre"}
+              </Button>
+            </>
+          )
+        ) : (
+          <div className="text-center py-8 text-muted-foreground"><p>Vente de cadres bientôt disponible</p></div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}

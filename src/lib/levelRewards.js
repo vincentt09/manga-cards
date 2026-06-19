@@ -1,0 +1,17 @@
+export const LEVEL_REWARDS = [
+  { level: 2, coins: 200, gems: 0, talentPoints: 0, label: "Débutant", desc: "Bienvenue dans l'arène !" },
+  { level: 3, coins: 400, gems: 0, talentPoints: 0, label: "Apprenti", desc: "Tu commences à maîtriser les cartes." },
+  { level: 5, coins: 800, gems: 2, talentPoints: 1, label: "Collectionneur", desc: "Ton premier point de talent." },
+  { level: 7, coins: 1500, gems: 0, talentPoints: 0, label: "Chasseur", desc: "Continue d'ouvrir des boosters." },
+  { level: 10, coins: 3000, gems: 5, talentPoints: 1, label: "Expert", desc: "La progression devient plus exigeante." },
+  { level: 12, coins: 2000, gems: 0, talentPoints: 0, label: "Vétéran", desc: "Ta collection prend forme." },
+  { level: 15, coins: 5000, gems: 10, talentPoints: 1, label: "Maître", desc: "Un nouveau palier de talent." },
+  { level: 18, coins: 4000, gems: 5, talentPoints: 0, label: "Élite", desc: "Seuls les plus réguliers arrivent ici." },
+  { level: 20, coins: 10000, gems: 20, talentPoints: 1, label: "Légende", desc: "Tu as atteint le rang légendaire !" },
+  { level: 25, coins: 8000, gems: 15, talentPoints: 1, label: "Mythique", desc: "Les cartes Secrètes t'appellent." },
+  { level: 30, coins: 20000, gems: 50, talentPoints: 1, label: "Champion", desc: "La seconde moitié du parcours commence." },
+  { level: 35, coins: 12000, gems: 10, talentPoints: 1, label: "Grand maître", desc: "Ton choix de spécialisation compte." },
+  { level: 40, coins: 15000, gems: 15, talentPoints: 1, label: "Prodige", desc: "La maîtrise demande de la constance." },
+  { level: 45, coins: 18000, gems: 20, talentPoints: 1, label: "Ascendant", desc: "Le talent ultime approche." },
+  { level: 50, coins: 25000, gems: 30, talentPoints: 1, label: "Transcendant", desc: "Un arbre complet peut enfin être maîtrisé." },
+];

@@ -1,0 +1,91 @@
+import React from "react";
+import { motion } from "framer-motion";
+import { ShoppingBag, X, Zap, Shield, Wind, Star, Frame, Coins } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { RARITY_CONFIG, RARITY_ORDER } from "@/lib/gameData";
+
+export function CardListing({ listing, onBuy, onCancel, isOwnListing, isBuying }) {
+  const rarity = RARITY_CONFIG[listing.card_rarity] || RARITY_CONFIG.common;
+  const isHighRarity = RARITY_ORDER[listing.card_rarity] >= 4;
+
+  return (
+    <motion.div layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
+      className={`relative rounded-2xl border-2 ${rarity.borderColor} bg-card overflow-hidden group`}>
+      <div className="relative h-44 overflow-hidden">
+        <img src={listing.card_image_url} alt={listing.card_name} className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+        {rarity.shimmer && <div className="absolute inset-0 shimmer opacity-10 mix-blend-overlay pointer-events-none" />}
+        <div className={`absolute top-2 left-2 rounded-full px-2.5 py-1 text-[10px] font-bold border backdrop-blur-sm ${rarity.bgColor} ${rarity.color} ${rarity.borderColor}`}>
+          {isHighRarity && "✦ "}{rarity.label}
+        </div>
+        <div className="absolute top-2 right-2 bg-black/70 rounded-full px-2 py-0.5 flex items-center gap-1">
+          <Star className="w-2.5 h-2.5 text-yellow-400 fill-yellow-400" /><span className="text-[9px] font-bold text-white">{listing.card_level || 1}</span>
+        </div>
+        {listing.card_variant === "awakened" && (
+          <div className="absolute bottom-10 left-2 bg-yellow-500/80 rounded-full px-2 py-0.5 text-[8px] font-bold text-black">★ ÉVEILLÉE</div>
+        )}
+        <div className="absolute bottom-2 left-2"><span className={`font-display text-2xl font-black drop-shadow-lg ${rarity.color}`}>{listing.card_power}</span></div>
+      </div>
+      <div className="p-3">
+        <h3 className="font-heading font-bold text-sm truncate">{listing.card_name}</h3>
+        <p className="text-[10px] text-muted-foreground mb-2">{listing.card_anime}</p>
+        <div className="flex items-center gap-3 mb-3 text-[10px]">
+          <div className="flex items-center gap-0.5"><Zap className="w-3 h-3 text-red-400" /><span className="font-semibold">{listing.card_attack}</span></div>
+          <div className="flex items-center gap-0.5"><Shield className="w-3 h-3 text-blue-400" /><span className="font-semibold">{listing.card_defense}</span></div>
+          <div className="flex items-center gap-0.5"><Wind className="w-3 h-3 text-green-400" /><span className="font-semibold">{listing.card_speed}</span></div>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 bg-yellow-500/10 rounded-lg px-2.5 py-1.5 border border-yellow-500/20">
+            <Coins className="w-3.5 h-3.5 text-yellow-400" /><span className="font-bold text-sm text-yellow-300">{listing.price.toLocaleString()}</span>
+          </div>
+          {isOwnListing ? (
+            <Button size="sm" variant="outline" onClick={() => onCancel(listing)} className="text-xs border-destructive/40 text-destructive hover:bg-destructive/10">
+              <X className="w-3 h-3 mr-1" />Retirer
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => onBuy(listing)} disabled={isBuying} className={`text-xs bg-gradient-to-r ${RARITY_CONFIG[listing.card_rarity]?.gradient || "from-primary to-accent"} border-0 text-white`}>
+              {isBuying ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ShoppingBag className="w-3 h-3 mr-1" />Acheter</>}
+            </Button>
+          )}
+        </div>
+        <p className="text-[9px] text-muted-foreground mt-2">Par {listing.seller_name || "Inconnu"}</p>
+      </div>
+    </motion.div>
+  );
+}
+
+export function FrameListingCard({ listing, onBuy, onCancel, isOwnListing, isBuying }) {
+  const rarity = RARITY_CONFIG[listing.frame_rarity] || RARITY_CONFIG.common;
+  return (
+    <motion.div layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
+      className={`relative rounded-2xl border-2 ${rarity.borderColor} bg-gradient-to-b ${rarity.gradient} overflow-hidden group p-4`}>
+      <div className="aspect-square rounded-xl bg-black/20 flex items-center justify-center mb-3">
+        <Frame className={`w-12 h-12 ${rarity.color} opacity-60`} />
+      </div>
+      <div className="mb-3">
+        <h3 className="font-heading font-bold text-sm truncate text-white">{listing.frame_name}</h3>
+        <div className="flex items-center gap-2 mt-1">
+          <span className={`text-[10px] font-bold ${rarity.color} bg-black/30 rounded-full px-2 py-0.5`}>{rarity.label}</span>
+          {listing.frame_effect && listing.frame_effect !== "none" && (
+            <span className="text-[9px] text-white/60 uppercase">{listing.frame_effect}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 bg-yellow-500/10 rounded-lg px-2.5 py-1.5 border border-yellow-500/20">
+          <Coins className="w-3.5 h-3.5 text-yellow-400" /><span className="font-bold text-sm text-yellow-300">{listing.price.toLocaleString()}</span>
+        </div>
+        {isOwnListing ? (
+          <Button size="sm" variant="outline" onClick={() => onCancel(listing)} className="text-xs border-destructive/40 text-destructive hover:bg-destructive/10">
+            <X className="w-3 h-3 mr-1" />Retirer
+          </Button>
+        ) : (
+          <Button size="sm" onClick={() => onBuy(listing)} disabled={isBuying} className={`text-xs bg-gradient-to-r ${rarity.gradient} border-0 text-white`}>
+            {isBuying ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ShoppingBag className="w-3 h-3 mr-1" />Acheter</>}
+          </Button>
+        )}
+      </div>
+      <p className="text-[9px] text-white/60 mt-2">Par {listing.seller_name || "Inconnu"}</p>
+    </motion.div>
+  );
+}

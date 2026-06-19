@@ -1,0 +1,10 @@
+{
+  "name": "Manga Cards",
+  "short_name": "Manga Cards",
+  "description": "Collectionne, améliore et échange des cartes manga.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090f",
+  "theme_color": "#09090f",
+  "lang": "fr"
+}

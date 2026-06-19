@@ -1,0 +1,121 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 250 20% 6%;
+    --foreground: 0 0% 95%;
+    --card: 250 20% 10%;
+    --card-foreground: 0 0% 95%;
+    --popover: 250 20% 10%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 270 80% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 250 20% 16%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 250 15% 18%;
+    --muted-foreground: 250 10% 55%;
+    --accent: 185 80% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 250 20% 18%;
+    --input: 250 20% 18%;
+    --ring: 270 80% 60%;
+    --chart-1: 270 80% 60%;
+    --chart-2: 185 80% 50%;
+    --chart-3: 45 90% 55%;
+    --chart-4: 330 80% 60%;
+    --chart-5: 150 70% 50%;
+    --radius: 0.75rem;
+    --font-heading: 'Orbitron', ui-sans-serif, system-ui, sans-serif;
+    --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Orbitron', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --sidebar-background: 250 20% 8%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 270 80% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 250 20% 14%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 250 20% 18%;
+    --sidebar-ring: 270 80% 60%;
+  }
+
+  .dark {
+    --background: 250 20% 6%;
+    --foreground: 0 0% 95%;
+    --card: 250 20% 10%;
+    --card-foreground: 0 0% 95%;
+    --popover: 250 20% 10%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 270 80% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 250 20% 16%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 250 15% 18%;
+    --muted-foreground: 250 10% 55%;
+    --accent: 185 80% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 250 20% 18%;
+    --input: 250 20% 18%;
+    --ring: 270 80% 60%;
+    --chart-1: 270 80% 60%;
+    --chart-2: 185 80% 50%;
+    --chart-3: 45 90% 55%;
+    --chart-4: 330 80% 60%;
+    --chart-5: 150 70% 50%;
+    --sidebar-background: 250 20% 8%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 270 80% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 250 20% 14%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 250 20% 18%;
+    --sidebar-ring: 270 80% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+}
+
+@keyframes card-glow {
+  0%, 100% { box-shadow: 0 0 15px rgba(139, 92, 246, 0.3); }
+  50% { box-shadow: 0 0 30px rgba(139, 92, 246, 0.6), 0 0 60px rgba(139, 92, 246, 0.2); }
+}
+
+@keyframes legendary-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(234, 179, 8, 0.4); }
+  50% { box-shadow: 0 0 40px rgba(234, 179, 8, 0.7), 0 0 80px rgba(234, 179, 8, 0.3); }
+}
+
+@keyframes epic-glow {
+  0%, 100% { box-shadow: 0 0 15px rgba(168, 85, 247, 0.4); }
+  50% { box-shadow: 0 0 30px rgba(168, 85, 247, 0.7), 0 0 60px rgba(168, 85, 247, 0.3); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.card-glow { animation: card-glow 2s ease-in-out infinite; }
+.legendary-glow { animation: legendary-glow 2s ease-in-out infinite; }
+.epic-glow { animation: epic-glow 2s ease-in-out infinite; }
+
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
