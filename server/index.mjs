@@ -240,6 +240,8 @@ const validPassword = (password, user) => {
   return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
 };
 const publicUser = ({ password_hash, password_salt, ...user }) => user;
+const isUserSuspended = (user) => user?.status === "suspended"
+  && (!user.suspended_until || new Date(user.suspended_until).getTime() > Date.now());
 const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000;
 const createSession = (db, userId) => {
   const token = crypto.randomBytes(32).toString("hex");
@@ -251,7 +253,8 @@ const createSession = (db, userId) => {
 const currentUser = (req, db) => {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
   const session = db.sessions.find((item) => item.token === token && (!item.expires_at || item.expires_at > Date.now()));
-  return session ? db.users.find((user) => user.id === session.user_id) : null;
+  const user = session ? db.users.find((candidate) => candidate.id === session.user_id) : null;
+  return user && !isUserSuspended(user) ? user : null;
 };
 const sortRows = (rows, sort) => {
   if (!sort) return rows;
@@ -302,6 +305,7 @@ async function authRoutes(req, res, pathname, db) {
     const input = await body(req);
     const user = db.users.find((item) => item.email === input.email?.trim().toLowerCase());
     if (!user || !user.password_hash || !validPassword(input.password || "", user)) return json(res, 401, { message: "E-mail ou mot de passe incorrect." });
+    if (isUserSuspended(user)) return json(res, 403, { message: user.suspension_reason || "Ce compte est temporairement suspendu." });
     const token = createSession(db, user.id); await writeDb(db);
     return json(res, 200, { access_token: token, user: publicUser(user) });
   }
@@ -378,6 +382,7 @@ async function authRoutes(req, res, pathname, db) {
     const googleToken = await tokenResponse.json(); const infoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${googleToken.access_token}` } }); const info = await infoResponse.json();
     let user = db.users.find((item) => item.email === info.email);
     if (!user) { user = { id: id(), email: info.email, full_name: info.name || "", avatar_url: info.picture, role: db.users.length ? "user" : "admin", provider: "google", created_date: new Date().toISOString() }; db.users.push(user); seedProfile(db, user); }
+    if (isUserSuspended(user)) { await writeDb(db); return redirect(res, `${oauthState.return_origin || frontendUrl}/login?error=account_suspended`); }
     const token = createSession(db, user.id); await writeDb(db);
     const target = new URL(oauthState.return_path, oauthState.return_origin || frontendUrl); target.searchParams.set("access_token", token);
     return redirect(res, target.toString());
@@ -462,8 +467,36 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     if (req.method === "PUT" && action) {
       if (user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
       const found = db.users.find((item) => item.id === action); if (!found) return json(res, 404, { message: "Utilisateur introuvable." });
-      const input = await body(req); for (const field of ["role", "full_name", "avatar_url"]) if (field in input) found[field] = input[field];
+      const input = await body(req);
+      const allowedRoles = new Set(["user", "vip", "moderator", "admin"]);
+      if ("role" in input && !allowedRoles.has(input.role)) return json(res, 400, { message: "Role invalide." });
+      if (found.id === user.id && input.role && input.role !== "admin") return json(res, 400, { message: "Tu ne peux pas retirer ton propre accès administrateur." });
+      const adminCount = db.users.filter((candidate) => candidate.role === "admin").length;
+      if (found.role === "admin" && input.role && input.role !== "admin" && adminCount <= 1) return json(res, 400, { message: "Le dernier administrateur doit conserver son rôle." });
+      for (const field of ["role", "full_name", "avatar_url", "status", "suspended_until", "suspension_reason"]) if (field in input) found[field] = input[field];
+      if (found.status !== "suspended") { found.status = "active"; found.suspended_until = null; found.suspension_reason = null; }
+      found.updated_date = new Date().toISOString();
+      const playerProfile = (db.entities.PlayerProfile || []).find((item) => item.created_by_id === found.id);
+      if (playerProfile && "full_name" in input) playerProfile.display_name = String(input.full_name || "").trim();
       await writeDb(db); return json(res, 200, publicUser(found));
+    }
+    if (req.method === "DELETE" && action) {
+      if (user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
+      const found = db.users.find((item) => item.id === action); if (!found) return json(res, 404, { message: "Utilisateur introuvable." });
+      if (found.id === user.id) return json(res, 400, { message: "Tu ne peux pas supprimer ton propre compte administrateur." });
+      if (found.role === "admin" && db.users.filter((candidate) => candidate.role === "admin").length <= 1) return json(res, 400, { message: "Le dernier administrateur ne peut pas être supprimé." });
+      const belongsToUser = (row) => [row.created_by_id, row.user_id, row.owner_id, row.seller_id, row.buyer_id].includes(found.id)
+        || row.created_by === found.email;
+      const removedByEntity = {};
+      for (const [entityName, rows] of Object.entries(db.entities)) {
+        const kept = (rows || []).filter((row) => !belongsToUser(row));
+        removedByEntity[entityName] = (rows || []).length - kept.length;
+        db.entities[entityName] = kept;
+      }
+      db.users = db.users.filter((candidate) => candidate.id !== found.id);
+      db.sessions = db.sessions.filter((session) => session.user_id !== found.id);
+      db.resetTokens = db.resetTokens.filter((token) => token.user_id !== found.id);
+      await writeDb(db); return json(res, 200, { success: true, removed: removedByEntity });
     }
     return json(res, 403, { message: "Operation interdite sur les utilisateurs." });
   }
@@ -520,7 +553,33 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "unlockTalent") {
+  if (name === "setCardImage") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const definition = (entities.CardDefinition || []).find((item) => item.id === input.card_id);
+    if (!definition) return json(res, 404, { message: "Définition de carte introuvable." });
+    const imageUrl = String(input.image_url || "");
+    const uploadMatch = imageUrl.match(/^\/api\/uploads\/([a-f0-9]{24})$/i);
+    if (!uploadMatch) return json(res, 400, { message: "L’image doit provenir de l’upload sécurisé de l’administration." });
+    const remote = await mongoDb();
+    if (!remote || !(await remote.collection("card_images.files").findOne({ _id: new ObjectId(uploadMatch[1]) }))) return json(res, 404, { message: "Le fichier uploadé est introuvable." });
+    entities.CardImageOverride ||= [];
+    const existing = entities.CardImageOverride.find((item) => item.card_id === definition.id);
+    const now = new Date().toISOString();
+    if (existing) Object.assign(existing, { image_url: imageUrl, card_name: definition.name, updated_date: now });
+    else entities.CardImageOverride.push({ id: id(), card_id: definition.id, card_name: definition.name, image_url: imageUrl, created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now });
+    entities.CardImageOverride = entities.CardImageOverride.filter((item, index, rows) => item.card_id !== definition.id || rows.findIndex((candidate) => candidate.card_id === definition.id) === index);
+    definition.image_url = imageUrl; definition.updated_date = now;
+    for (const owned of (entities.Card || []).filter((item) => item.card_definition_id === definition.id)) { owned.image_url = imageUrl; owned.updated_date = now; }
+    result = { image_url: imageUrl, card_id: definition.id };
+  } else if (name === "clearCardImage") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const definition = (entities.CardDefinition || []).find((item) => item.id === input.card_id);
+    if (!definition) return json(res, 404, { message: "Définition de carte introuvable." });
+    entities.CardImageOverride = (entities.CardImageOverride || []).filter((item) => item.card_id !== definition.id);
+    definition.image_url = null; definition.updated_date = new Date().toISOString();
+    for (const owned of (entities.Card || []).filter((item) => item.card_definition_id === definition.id)) { owned.image_url = null; owned.updated_date = new Date().toISOString(); }
+    result = { card_id: definition.id, image_url: null };
+  } else if (name === "unlockTalent") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     const talent = getTalent(input.talent_id);
     if (!talent) return json(res, 400, { message: "Talent inconnu." });

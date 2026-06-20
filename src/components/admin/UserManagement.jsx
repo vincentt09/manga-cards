@@ -1,21 +1,11 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { 
-  Users, Shield, Crown, Star, Search, Edit2, Save, 
-  UserCheck, Mail, Calendar, TrendingUp, Coins, Gem, AlertTriangle
-} from "lucide-react";
+import { Users, Shield, Crown, Star, Search, Edit2, Save, UserCheck, Mail, Calendar, TrendingUp, Coins, Gem, AlertTriangle, Trash2, Ban, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { appClient } from "@/api/appClient";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const ROLES = [
   { id: "user", label: "Utilisateur", icon: UserCheck, color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
@@ -25,258 +15,127 @@ const ROLES = [
 ];
 
 function RoleBadge({ role }) {
-  const roleConfig = ROLES.find(r => r.id === role) || ROLES[0];
-  const Icon = roleConfig.icon;
-  return (
-    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${roleConfig.color}`}>
-      <Icon className="w-3.5 h-3.5" />
-      <span className="uppercase">{roleConfig.label}</span>
-    </div>
-  );
+  const config = ROLES.find(item => item.id === role) || ROLES[0];
+  const Icon = config.icon;
+  return <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${config.color}`}><Icon className="w-3 h-3" />{config.label.toUpperCase()}</span>;
 }
 
-export default function UserManagement({ users, profiles, onUserUpdate }) {
+const numberValue = value => Math.max(0, Math.floor(Number(value) || 0));
+
+export default function UserManagement({ users, profiles, currentUser, onUserUpdate }) {
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("all");
-  const [editingUser, setEditingUser] = useState(null);
-  const [newRole, setNewRole] = useState("");
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({});
   const { toast } = useToast();
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = 
-      user.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-      user.email?.toLowerCase().includes(search.toLowerCase());
-    const matchesRole = filterRole === "all" || user.role === filterRole;
-    return matchesSearch && matchesRole;
-  });
+  const filteredUsers = useMemo(() => users.filter(item => {
+    const query = search.trim().toLowerCase();
+    const matchesSearch = !query || item.full_name?.toLowerCase().includes(query) || item.email?.toLowerCase().includes(query);
+    return matchesSearch && (filterRole === "all" || item.role === filterRole);
+  }), [users, search, filterRole]);
 
-  const handleRoleChange = async (userId, selectedRole) => {
-    try {
-      await appClient.entities.User.update(userId, { role: selectedRole });
-      toast({
-        title: "✅ Rôle mis à jour",
-        description: `Le rôle a été changé avec succès`,
-      });
-      onUserUpdate();
-      setEditingUser(null);
-      setIsDialogOpen(false);
-    } catch (error) {
-      toast({
-        title: "❌ Erreur",
-        description: "Impossible de mettre à jour le rôle",
-        variant: "destructive",
-      });
-    }
+  const getProfile = userId => profiles.find(profile => profile.created_by_id === userId);
+  const selectedUser = users.find(item => item.id === selectedId);
+
+  const openEditor = user => {
+    const profile = getProfile(user.id);
+    setSelectedId(user.id);
+    setForm({
+      full_name: user.full_name || "",
+      role: user.role || "user",
+      status: user.status === "suspended" ? "suspended" : "active",
+      suspended_until: user.suspended_until ? new Date(user.suspended_until).toISOString().slice(0, 16) : "",
+      suspension_reason: user.suspension_reason || "",
+      coins: profile?.coins || 0,
+      gems: profile?.gems || 0,
+      xp: profile?.xp || 0,
+      talent_points: profile?.talent_points || 0,
+    });
   };
 
-  const getUserProfile = (userId) => profiles.find(p => p.created_by_id === userId);
+  const saveUser = async () => {
+    if (!selectedUser || saving) return;
+    const profile = getProfile(selectedUser.id);
+    setSaving(true);
+    try {
+      await appClient.entities.User.update(selectedUser.id, {
+        full_name: form.full_name.trim(), role: form.role, status: form.status,
+        suspended_until: form.status === "suspended" && form.suspended_until ? new Date(form.suspended_until).toISOString() : null,
+        suspension_reason: form.status === "suspended" ? form.suspension_reason.trim() : null,
+      });
+      if (profile) await appClient.entities.PlayerProfile.update(profile.id, {
+        display_name: form.full_name.trim(), coins: numberValue(form.coins), gems: numberValue(form.gems),
+        xp: numberValue(form.xp), talent_points: numberValue(form.talent_points),
+      });
+      await onUserUpdate?.();
+      setSelectedId(null);
+      toast({ title: "Compte mis à jour", description: "Le profil, le rôle et l’économie ont été synchronisés." });
+    } catch (error) {
+      toast({ title: "Modification impossible", description: error.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
 
-  const openEditDialog = (user) => {
-    setEditingUser(user.id);
-    setNewRole(user.role);
-    setIsDialogOpen(true);
+  const deleteUser = async () => {
+    if (!deleteTarget || saving) return;
+    setSaving(true);
+    try {
+      await appClient.entities.User.delete(deleteTarget.id);
+      await onUserUpdate?.();
+      setDeleteTarget(null);
+      toast({ title: "Compte supprimé", description: `${deleteTarget.email} et ses données de jeu ont été effacés.` });
+    } catch (error) {
+      toast({ title: "Suppression impossible", description: error.message, variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
   return (
     <div className="space-y-6">
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input 
-            placeholder="Rechercher par nom ou email..." 
-            value={search} 
-            onChange={e => setSearch(e.target.value)} 
-            className="pl-11 bg-secondary/30 border-border h-11" 
-          />
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {["all", ...ROLES.map(r => r.id)].map(roleId => (
-            <Button
-              key={roleId}
-              variant={filterRole === roleId ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFilterRole(roleId)}
-              className={filterRole === roleId ? "bg-primary" : "border-border"}
-            >
-              {roleId === "all" ? "Tous" : ROLES.find(r => r.id === roleId)?.label}
-            </Button>
-          ))}
-        </div>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Rechercher un pseudo ou un e-mail…" value={search} onChange={event => setSearch(event.target.value)} className="pl-11 h-11 bg-secondary/30" /></div>
+        <div className="flex gap-2 flex-wrap">{["all", ...ROLES.map(role => role.id)].map(roleId => <Button key={roleId} size="sm" variant={filterRole === roleId ? "default" : "outline"} onClick={() => setFilterRole(roleId)}>{roleId === "all" ? "Tous" : ROLES.find(role => role.id === roleId)?.label}</Button>)}</div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {ROLES.map(role => {
-          const count = users.filter(u => u.role === role.id).length;
-          const Icon = role.icon;
-          return (
-            <div key={role.id} className={`rounded-2xl border p-4 ${role.color} bg-opacity-20`}>
-              <div className="flex items-center justify-between mb-2">
-                <Icon className="w-5 h-5" />
-                <span className="text-2xl font-bold">{count}</span>
-              </div>
-              <p className="text-xs font-semibold uppercase">{role.label}</p>
-            </div>
-          );
-        })}
-      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{ROLES.map(role => { const Icon = role.icon; return <div key={role.id} className={`rounded-2xl border p-4 ${role.color}`}><div className="flex justify-between"><Icon className="w-5 h-5" /><strong className="text-2xl">{users.filter(user => user.role === role.id).length}</strong></div><p className="mt-2 text-xs font-bold uppercase">{role.label}</p></div>; })}</div>
 
-      {/* Users List */}
-      <div className="space-y-3">
-        {filteredUsers.map(user => {
-          const profile = getUserProfile(user.id);
-          const isEditing = editingUser === user.id;
-
-          return (
-            <motion.div
-              key={user.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-5 rounded-2xl border border-border bg-card hover:border-primary/30 transition-all"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-4 flex-1">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center shrink-0 border border-primary/20">
-                    <span className="text-lg font-bold text-primary">{(user.full_name || "?")[0].toUpperCase()}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1">
-                      <h3 className="font-semibold text-base truncate">{user.full_name || "Utilisateur"}</h3>
-                      {!isEditing && <RoleBadge role={user.role} />}
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
-                      <Mail className="w-3 h-3" />
-                      <span className="truncate">{user.email}</span>
-                    </div>
-                    {profile && (
-                      <div className="flex flex-wrap gap-3">
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <Coins className="w-3 h-3 text-yellow-400" />
-                          <span className="font-semibold">{(profile.coins || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <Gem className="w-3 h-3 text-cyan-400" />
-                          <span className="font-semibold">{profile.gems || 0}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <TrendingUp className="w-3 h-3 text-green-400" />
-                          <span className="font-semibold">Niv. {Math.floor((profile.xp || 0) / 100) + 1}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <Calendar className="w-3 h-3 text-purple-400" />
-                          <span>{new Date(user.created_date).toLocaleDateString('fr-FR')}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => openEditDialog(user)}
-                    className="border-border hover:bg-primary/10 hover:text-primary"
-                  >
-                    <Edit2 className="w-4 h-4 mr-1.5" />
-                    Modifier rôle
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-
-      {filteredUsers.length === 0 && (
-        <div className="text-center py-12">
-          <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-          <p className="text-muted-foreground">Aucun utilisateur trouvé</p>
-        </div>
-      )}
-
-      {/* Edit Role Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Modifier le rôle</DialogTitle>
-            <DialogDescription>
-              Sélectionnez un nouveau rôle pour cet utilisateur
-            </DialogDescription>
-          </DialogHeader>
-
-          {editingUser && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-secondary/30 border border-border">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                    <span className="text-sm font-bold text-primary">
-                      {users.find(u => u.id === editingUser)?.full_name?.[0] || "?"}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="font-semibold">
-                      {users.find(u => u.id === editingUser)?.full_name || "Utilisateur"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Rôle actuel: <span className="font-semibold capitalize">{users.find(u => u.id === editingUser)?.role}</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                {ROLES.map(role => {
-                  const Icon = role.icon;
-                  const isSelected = newRole === role.id;
-                  return (
-                    <button
-                      key={role.id}
-                      onClick={() => setNewRole(role.id)}
-                      className={`p-4 rounded-xl border-2 transition-all ${
-                        isSelected 
-                          ? "border-primary bg-primary/10" 
-                          : "border-border bg-secondary/20 hover:border-primary/50"
-                      }`}
-                    >
-                      <div className="flex flex-col items-center gap-2">
-                        <Icon className={`w-6 h-6 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
-                        <span className={`font-semibold text-sm ${isSelected ? "text-primary" : "text-muted-foreground"}`}>
-                          {role.label}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5" />
-                  <p className="text-xs text-yellow-300">
-                    La modification des rôles est immédiate et irréversible. Assurez-vous que c'est le bon rôle.
-                  </p>
-                </div>
+      <div className="space-y-3">{filteredUsers.map(user => {
+        const profile = getProfile(user.id);
+        const suspended = user.status === "suspended" && (!user.suspended_until || new Date(user.suspended_until) > new Date());
+        return <motion.article key={user.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`p-4 sm:p-5 rounded-2xl border bg-card ${suspended ? "border-red-500/40" : "border-border"}`}>
+          <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 grid place-items-center shrink-0 font-bold text-primary">{(user.full_name || "?")[0].toUpperCase()}</div>
+              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold truncate">{user.full_name || "Utilisateur"}</h3><RoleBadge role={user.role} />{suspended && <span className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-400"><Ban className="w-3 h-3" />SUSPENDU</span>}</div>
+                <p className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground truncate"><Mail className="w-3 h-3" />{user.email}</p>
+                <div className="flex flex-wrap gap-3 mt-3 text-xs"><span className="flex gap-1"><Coins className="w-3 h-3 text-yellow-400" />{numberValue(profile?.coins).toLocaleString()}</span><span className="flex gap-1"><Gem className="w-3 h-3 text-cyan-400" />{numberValue(profile?.gems)}</span><span className="flex gap-1"><TrendingUp className="w-3 h-3 text-green-400" />{numberValue(profile?.xp).toLocaleString()} XP</span><span className="flex gap-1 text-muted-foreground"><Calendar className="w-3 h-3" />{new Date(user.created_date).toLocaleDateString("fr-FR")}</span></div>
               </div>
             </div>
-          )}
+            <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openEditor(user)}><Edit2 className="w-4 h-4 mr-1.5" />Gérer</Button><Button size="sm" variant="outline" disabled={user.id === currentUser?.id} onClick={() => setDeleteTarget(user)} className="border-red-500/30 text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></Button></div>
+          </div>
+        </motion.article>;
+      })}</div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Annuler
-            </Button>
-            <Button 
-              onClick={() => handleRoleChange(editingUser, newRole)}
-              className="bg-primary hover:bg-primary/90"
-            >
-              <Save className="w-4 h-4 mr-1.5" />
-              Sauvegarder
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {!filteredUsers.length && <div className="text-center py-12 text-muted-foreground"><Users className="w-12 h-12 mx-auto mb-3" />Aucun utilisateur trouvé</div>}
+
+      <Dialog open={!!selectedId} onOpenChange={open => !open && setSelectedId(null)}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Gérer le compte</DialogTitle><DialogDescription>{selectedUser?.email}</DialogDescription></DialogHeader>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <label className="text-xs font-semibold">Pseudo<Input className="mt-1.5" value={form.full_name || ""} onChange={event => setForm(current => ({ ...current, full_name: event.target.value }))} /></label>
+          <label className="text-xs font-semibold">Rôle<select className="mt-1.5 w-full h-10 rounded-md border border-input bg-background px-3" value={form.role || "user"} onChange={event => setForm(current => ({ ...current, role: event.target.value }))}>{ROLES.map(role => <option key={role.id} value={role.id}>{role.label}</option>)}</select></label>
+          <label className="text-xs font-semibold">Pièces<Input type="number" min="0" className="mt-1.5" value={form.coins ?? 0} onChange={event => setForm(current => ({ ...current, coins: event.target.value }))} /></label>
+          <label className="text-xs font-semibold">Gemmes<Input type="number" min="0" className="mt-1.5" value={form.gems ?? 0} onChange={event => setForm(current => ({ ...current, gems: event.target.value }))} /></label>
+          <label className="text-xs font-semibold">XP<Input type="number" min="0" className="mt-1.5" value={form.xp ?? 0} onChange={event => setForm(current => ({ ...current, xp: event.target.value }))} /></label>
+          <label className="text-xs font-semibold">Points de talent<Input type="number" min="0" className="mt-1.5" value={form.talent_points ?? 0} onChange={event => setForm(current => ({ ...current, talent_points: event.target.value }))} /></label>
+          <label className="text-xs font-semibold">État du compte<select className="mt-1.5 w-full h-10 rounded-md border border-input bg-background px-3" value={form.status || "active"} onChange={event => setForm(current => ({ ...current, status: event.target.value }))}><option value="active">Actif</option><option value="suspended">Suspendu</option></select></label>
+          {form.status === "suspended" && <label className="text-xs font-semibold">Fin de suspension (optionnelle)<Input type="datetime-local" className="mt-1.5" value={form.suspended_until || ""} onChange={event => setForm(current => ({ ...current, suspended_until: event.target.value }))} /></label>}
+          {form.status === "suspended" && <label className="text-xs font-semibold sm:col-span-2">Motif<Input className="mt-1.5" placeholder="Message affiché au joueur" value={form.suspension_reason || ""} onChange={event => setForm(current => ({ ...current, suspension_reason: event.target.value }))} /></label>}
+        </div>
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" />Les changements de solde, profil et accès sont appliqués immédiatement.</div>
+        <DialogFooter><Button variant="outline" onClick={() => setSelectedId(null)}>Annuler</Button><Button disabled={saving || !form.full_name?.trim()} onClick={saveUser}><Save className="w-4 h-4 mr-1.5" />Enregistrer</Button></DialogFooter>
+      </DialogContent></Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2 text-red-400"><AlertTriangle className="w-5 h-5" />Supprimer définitivement ce compte ?</DialogTitle><DialogDescription>Le compte {deleteTarget?.email}, ses cartes, cadres, transactions, talents et sessions seront supprimés. Cette action est irréversible.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>Annuler</Button><Button disabled={saving} onClick={deleteUser} className="bg-red-600 hover:bg-red-700"><Trash2 className="w-4 h-4 mr-1.5" />Supprimer le compte</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }

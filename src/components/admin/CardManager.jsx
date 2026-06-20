@@ -65,6 +65,8 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
 
   const handleUpload = async (card, file) => {
     if (!file) return;
+    if (!file.type.startsWith("image/")) return toast({ title: "Fichier refusé", description: "Choisis une image PNG, JPG, WEBP ou GIF.", variant: "destructive" });
+    if (file.size > 8 * 1024 * 1024) return toast({ title: "Image trop lourde", description: "La taille maximale est de 8 Mo.", variant: "destructive" });
     
     setUploadingIds(prev => new Set(prev).add(card.id));
     
@@ -414,12 +416,17 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
                       ) : hasImage ? (
                         <div className="relative w-full h-full group/image">
                           <img 
+                            key={displayUrl}
                             src={displayUrl} 
                             alt={card.name}
                             className="w-full h-full object-cover transition-transform duration-500 group-hover/image:scale-110 rounded-xl"
+                            onLoad={e => {
+                              e.currentTarget.style.display = '';
+                              e.currentTarget.nextElementSibling?.classList.add('hidden');
+                            }}
                             onError={e => { 
-                              e.target.style.display = 'none';
-                              e.target.nextElementSibling?.classList.remove('hidden');
+                              e.currentTarget.style.display = 'none';
+                              e.currentTarget.nextElementSibling?.classList.remove('hidden');
                             }} 
                           />
                           <div className="hidden absolute inset-0 bg-destructive/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
@@ -456,7 +463,7 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
                           </div>
                           <div className="text-center">
                             <p className="text-sm font-bold text-foreground mb-1">Glissez-déposez ou cliquez</p>
-                            <p className="text-[10px] text-muted-foreground">PNG, JPG, WEBP (max 5MB)</p>
+                            <p className="text-[10px] text-muted-foreground">PNG, JPG, WEBP, GIF (max 8 Mo)</p>
                           </div>
                           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/50 border border-border">
                             <Image className="w-3 h-3 text-muted-foreground" />

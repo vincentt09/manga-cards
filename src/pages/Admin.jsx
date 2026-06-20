@@ -418,32 +418,26 @@ export default function Admin() {
   }
 
   const handleSaveImageOverride = async (cardId, cardName, imageUrl) => {
-    const existing = overrides.find(o => o.card_id === cardId);
-    let savedOverride;
-    if (existing) {
-      savedOverride = await appClient.entities.CardImageOverride.update(existing.id, { image_url: imageUrl });
-    } else {
-      savedOverride = await appClient.entities.CardImageOverride.create({ card_id: cardId, card_name: cardName, image_url: imageUrl });
-    }
-    queryClient.setQueryData(["card_overrides"], (current = []) => [
-      ...current.filter(item => item.card_id !== cardId),
-      savedOverride,
-    ]);
+    await appClient.functions.invoke("setCardImage", { card_id: cardId, image_url: imageUrl });
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["card_overrides"] }),
       queryClient.invalidateQueries({ queryKey: ["cardImageOverrides"] }),
       queryClient.invalidateQueries({ queryKey: ["cards"] }),
+      queryClient.invalidateQueries({ queryKey: ["card_definitions"] }),
+      queryClient.invalidateQueries({ queryKey: ["all_cards_for_preview"] }),
     ]);
-    toast({ title: "✅ Image mise à jour", description: `${cardName} — nouvelle URL enregistrée` });
+    toast({ title: "✅ Image sauvegardée", description: `${cardName} est synchronisée partout dans le jeu.` });
   };
 
   const handleResetImageOverride = async (cardId) => {
-    const existing = overrides.find(o => o.card_id === cardId);
-    if (existing) {
-      await appClient.entities.CardImageOverride.delete(existing.id);
-      queryClient.invalidateQueries({ queryKey: ["card_overrides"] });
-      toast({ title: "🔄 Image réinitialisée" });
-    }
+    await appClient.functions.invoke("clearCardImage", { card_id: cardId });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["card_overrides"] }),
+      queryClient.invalidateQueries({ queryKey: ["cardImageOverrides"] }),
+      queryClient.invalidateQueries({ queryKey: ["cards"] }),
+      queryClient.invalidateQueries({ queryKey: ["card_definitions"] }),
+    ]);
+    toast({ title: "🔄 Image réinitialisée partout" });
   };
 
   const handleEditCoins = async (profile, newCoins) => {
@@ -533,7 +527,7 @@ export default function Admin() {
                 </div>
               </>
             )}
-            {tab === "users"    && <UserManagement users={users} profiles={profiles} onUserUpdate={() => queryClient.invalidateQueries({ queryKey: ["admin_users"] })} />}
+            {tab === "users"    && <UserManagement users={users} profiles={profiles} currentUser={user} onUserUpdate={() => Promise.all([queryClient.invalidateQueries({ queryKey: ["admin_users"] }), queryClient.invalidateQueries({ queryKey: ["admin_profiles"] })])} />}
             {tab === "inventory" && <InventoryDashboard listings={listings} profiles={profiles} transactions={transactions} />}
             {tab === "players"  && <PlayersTab profiles={profiles} users={users} onEditCoins={handleEditCoins} onResetPlayer={handleResetPlayer} />}
             {tab === "cards"    && <CardManager cardDefinitions={cardDefinitions} overrides={overrides} onSave={handleSaveImageOverride} onReset={handleResetImageOverride} />}

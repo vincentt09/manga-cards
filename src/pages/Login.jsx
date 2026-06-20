@@ -15,7 +15,9 @@ export default function Login() {
   const [error, setError] = useState(
     searchParams.get("error") === "google_not_configured"
       ? "La connexion Google doit être configurée avec tes propres clés OAuth."
-      : searchParams.get("error") ? "La connexion Google a échoué." : ""
+      : searchParams.get("error") === "account_suspended"
+        ? "Ce compte est actuellement suspendu. Contacte l’administration."
+        : searchParams.get("error") ? "La connexion Google a échoué." : ""
   );
   const [loading, setLoading] = useState(false);
 
