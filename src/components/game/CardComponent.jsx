@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Star, Heart, Zap, Shield, Wind, Sparkles, TrendingUp, Coins } from "lucide-react";
 import { RARITY_CONFIG, getCardIncome } from "@/lib/gameData";
@@ -7,6 +7,7 @@ import CardFrameOverlay from "@/components/frames/CardFrameOverlay";
 function CardImg({ card }) {
   const [failed, setFailed] = useState(false);
   const src = card.image_url;
+  useEffect(() => setFailed(false), [src]);
   
   if (failed || !src) {
     return (
@@ -27,6 +28,8 @@ function CardImg({ card }) {
       alt={card.name}
       className="w-full h-full object-cover object-top"
       loading="lazy" 
+      decoding="async"
+      draggable="false"
       onError={() => setFailed(true)} 
     />
   );

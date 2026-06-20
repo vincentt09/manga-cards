@@ -471,29 +471,29 @@ export default function Admin() {
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8 p-6 rounded-3xl border border-border bg-card/50 backdrop-blur-sm">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-xl shadow-primary/20">
+        <div className="flex items-center gap-3 sm:gap-4 mb-5 sm:mb-8 p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-border bg-card/50 backdrop-blur-sm">
+          <div className="w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-xl sm:rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-xl shadow-primary/20">
             <Shield className="w-7 h-7 text-white" />
           </div>
           <div className="flex-1">
-            <h1 className="font-display text-3xl font-bold mb-1">Espace Admin</h1>
-            <p className="text-sm text-muted-foreground">Connecté en tant que {user?.email}</p>
+            <h1 className="font-display text-xl sm:text-3xl font-bold mb-1">Espace Admin</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground truncate">Connecté en tant que {user?.email}</p>
           </div>
-          <div className="flex items-center gap-2 bg-primary/10 rounded-full px-4 py-2 border border-primary/20">
+          <div className="hidden sm:flex items-center gap-2 bg-primary/10 rounded-full px-4 py-2 border border-primary/20">
             <Crown className="w-4 h-4 text-primary" />
             <span className="text-xs font-bold text-primary">ADMINISTRATEUR</span>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-6 flex-wrap">
+        <div className="sticky top-[calc(3.75rem+env(safe-area-inset-top))] z-30 -mx-4 mb-6 flex gap-2 overflow-x-auto border-y border-border/50 bg-background/90 px-4 py-3 backdrop-blur-xl sm:static sm:mx-0 sm:flex-wrap sm:border-0 sm:bg-transparent sm:p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TABS.map(t => {
             const Icon = t.icon;
             return (
               <button 
                 key={t.id} 
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all ${
+                className={`shrink-0 flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
                   tab === t.id 
                     ? "bg-gradient-to-r from-primary to-accent text-white shadow-lg shadow-primary/20" 
                     : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50 hover:text-foreground border border-border/50"

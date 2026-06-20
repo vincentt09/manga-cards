@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
@@ -8,24 +9,27 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import ScrollToTop from './components/ScrollToTop';
 import ServerWakeScreen from '@/components/ServerWakeScreen';
+import AppErrorBoundary from '@/components/AppErrorBoundary';
+import NetworkStatus from '@/components/NetworkStatus';
+import RouteFallback from '@/components/RouteFallback';
 
-import Login from '@/pages/Login';
-import Register from '@/pages/Register';
-import ForgotPassword from '@/pages/ForgotPassword';
-import ResetPassword from '@/pages/ResetPassword';
-import Collection from '@/pages/Collection';
-import Boosters from '@/pages/Boosters';
-import Profile from '@/pages/Profile';
-import Marketplace from '@/pages/Marketplace';
-import Encyclopedia from '@/pages/Encyclopedia';
-import HistoryPage from '@/pages/History';
-import Admin from '@/pages/Admin';
-import Fusion from '@/pages/Fusion';
-import Frames from '@/pages/Frames';
-import Talents from '@/pages/Talents';
-import Auctions from '@/pages/Auctions';
-import Leaderboard from '@/pages/Leaderboard';
-import Success from '@/pages/Success';
+const Login = lazy(() => import('@/pages/Login'));
+const Register = lazy(() => import('@/pages/Register'));
+const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('@/pages/ResetPassword'));
+const Collection = lazy(() => import('@/pages/Collection'));
+const Boosters = lazy(() => import('@/pages/Boosters'));
+const Profile = lazy(() => import('@/pages/Profile'));
+const Marketplace = lazy(() => import('@/pages/Marketplace'));
+const Encyclopedia = lazy(() => import('@/pages/Encyclopedia'));
+const HistoryPage = lazy(() => import('@/pages/History'));
+const Admin = lazy(() => import('@/pages/Admin'));
+const Fusion = lazy(() => import('@/pages/Fusion'));
+const Frames = lazy(() => import('@/pages/Frames'));
+const Talents = lazy(() => import('@/pages/Talents'));
+const Auctions = lazy(() => import('@/pages/Auctions'));
+const Leaderboard = lazy(() => import('@/pages/Leaderboard'));
+const Success = lazy(() => import('@/pages/Success'));
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin, serverWake } = useAuth();
@@ -44,7 +48,7 @@ const AuthenticatedApp = () => {
   }
 
   return (
-    <Routes>
+    <Suspense fallback={<RouteFallback />}><Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -68,21 +72,16 @@ const AuthenticatedApp = () => {
         <Route path="/cosmetics" element={<Navigate to="/profile" replace />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
-    </Routes>
+    </Routes></Suspense>
   );
 };
 
 function App() {
   return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <ScrollToTop />
-          <AuthenticatedApp />
-        </Router>
-        <Toaster />
-      </QueryClientProvider>
-    </AuthProvider>
+    <AppErrorBoundary><AuthProvider><QueryClientProvider client={queryClientInstance}>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><ScrollToTop /><NetworkStatus /><AuthenticatedApp /></Router>
+      <Toaster />
+    </QueryClientProvider></AuthProvider></AppErrorBoundary>
   )
 }
 

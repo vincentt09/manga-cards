@@ -82,14 +82,34 @@
 }
 
 @layer base {
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    background: hsl(var(--background));
+  }
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground font-body;
+    min-width: 320px;
+    min-height: 100dvh;
+    overflow-x: hidden;
     padding-bottom: env(safe-area-inset-bottom);
     -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+    background-image: radial-gradient(circle at 15% -10%, hsl(var(--primary) / .12), transparent 30rem), radial-gradient(circle at 100% 15%, hsl(var(--accent) / .07), transparent 26rem);
+    background-attachment: fixed;
   }
+  ::selection { background: hsl(var(--primary) / .35); color: white; }
+  :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+  img { -webkit-user-drag: none; }
+}
+
+@media (min-width: 768px) {
+  * { scrollbar-width: thin; scrollbar-color: hsl(var(--primary) / .45) transparent; }
+  *::-webkit-scrollbar { width: 9px; height: 9px; }
+  *::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: hsl(var(--primary) / .42); background-clip: padding-box; }
 }
 
 @keyframes card-glow {
@@ -200,4 +220,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .wake-card, .wake-card::after, .wake-progress, .wake-stars { animation: none; }
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

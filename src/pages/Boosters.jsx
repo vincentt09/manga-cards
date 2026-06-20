@@ -94,7 +94,7 @@ function BoosterCard({ booster, onOpen, onPreview, canAfford, isOpening, isLocke
                 whileHover={{ scale: 1.15, rotate: (i - 1) * 2 }}
                 transition={{ duration: 0.3 }}
               >
-                <img src={img} alt="" className="w-full h-full object-cover object-top opacity-80 group-hover:opacity-100 transition-opacity duration-300" />
+                <img src={img} alt="" loading="lazy" decoding="async" draggable="false" className="w-full h-full object-cover object-top opacity-80 group-hover:opacity-100 transition-opacity duration-300" />
               </motion.div>
             ))}
           </div>
