@@ -22,7 +22,7 @@ export default function FrameShowcase({ frame, isUnlocked, onClick }) {
       className={`relative rounded-2xl border-2 ${rarity.borderColor} bg-gradient-to-b ${rarity.gradient} overflow-hidden cursor-pointer group`}
     >
       {/* Frame preview area */}
-      <div className="relative h-48 flex items-center justify-center p-4">
+      <div className="relative flex h-40 items-center justify-center p-2 sm:h-48 sm:p-4">
         {/* Locked overlay */}
         {!isUnlocked && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
@@ -31,7 +31,7 @@ export default function FrameShowcase({ frame, isUnlocked, onClick }) {
         )}
         
         {/* Sample card placeholder */}
-        <div className="w-28 aspect-[2/3] rounded-lg border-2 border-white/20 bg-black/30 overflow-hidden relative">
+        <div className="relative aspect-[2/3] w-24 overflow-hidden rounded-lg border-2 border-white/20 bg-black/30 sm:w-28">
           <div className="absolute inset-0 bg-gradient-to-br from-slate-800 via-amber-950 to-black" />
           {frame.image_url && <img src={frame.image_url} alt="" className="absolute inset-0 z-10 w-full h-full object-fill pointer-events-none" />}
           {frame.effect !== "none" && (
@@ -65,11 +65,11 @@ export default function FrameShowcase({ frame, isUnlocked, onClick }) {
       
       {/* Info section */}
       <div className="p-3 bg-black/40 backdrop-blur-sm">
-        <div className="flex items-center justify-between mb-2">
+        <div className="mb-2 flex flex-col items-start gap-1 min-[430px]:flex-row min-[430px]:items-center min-[430px]:justify-between">
           <span className="text-[10px] text-muted-foreground">Coût</span>
-          <div className="flex items-center gap-1">
+          <div className="flex min-w-0 items-start gap-1 min-[430px]:justify-end">
             <Star className="w-3 h-3 text-cyan-400 fill-cyan-400" />
-            <span className="text-xs font-bold text-cyan-300">
+            <span className="break-words text-left text-xs font-bold text-cyan-300 min-[430px]:text-right">
               {Number(frame.price_coins || 0) > 0 && `${Number(frame.price_coins).toLocaleString("fr-FR")} 🪙 `}
               {Number(frame.price_gems || 0) > 0 && `${Number(frame.price_gems).toLocaleString("fr-FR")} 💎`}
               {Number(frame.price_eur || 0) > 0 && `${Number(frame.price_eur).toFixed(2)} €`}

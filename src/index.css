@@ -218,6 +218,13 @@
 
 .wake-progress { width: 55%; animation: wake-progress 2.2s ease-in-out infinite; }
 
+@media (max-width: 767px) {
+  #root { width: 100%; max-width: 100%; overflow-x: clip; }
+  body { background-attachment: scroll; }
+  button, a, input, textarea, [role="button"], [role="tab"] { touch-action: manipulation; }
+  input, textarea, select { font-size: 16px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wake-card, .wake-card::after, .wake-progress, .wake-stars { animation: none; }
   html { scroll-behavior: auto; }

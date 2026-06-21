@@ -133,7 +133,7 @@ export default function Frames() {
       <Navbar />
       {profile && <CurrencyBar profile={profile} cards={[]} />}
 
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-6xl mx-auto px-3 py-5 sm:px-4 sm:py-6">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -174,7 +174,7 @@ export default function Frames() {
               <h2 className="font-display font-bold text-xl text-yellow-300">Reliques ultimes</h2>
             </div>
             <p className="text-xs text-muted-foreground mb-5">Ces cadres ne tombent dans aucun booster : ils récompensent l’aboutissement d’une collection.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
               {endgameFrames.map((frame) => (
                 <FrameShowcase key={frame.id} frame={frame} isUnlocked={unlockedFrameIds.has(frame.id)} onClick={() => handleFrameClick(frame)} />
               ))}
@@ -186,7 +186,7 @@ export default function Frames() {
           <section className="mb-10 rounded-3xl border border-green-400/30 bg-green-500/5 p-5">
             <h2 className="font-display font-bold text-xl text-green-300 mb-2">Cadeaux disponibles</h2>
             <p className="text-xs text-muted-foreground mb-5">Ces cadres sont offerts une seule fois à chaque joueur.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">{giftFrames.map((frame) => <FrameShowcase key={frame.id} frame={frame} isUnlocked={unlockedFrameIds.has(frame.id)} onClick={() => handleFrameClick(frame)} />)}</div>
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">{giftFrames.map((frame) => <FrameShowcase key={frame.id} frame={frame} isUnlocked={unlockedFrameIds.has(frame.id)} onClick={() => handleFrameClick(frame)} />)}</div>
           </section>
         )}
 
@@ -194,7 +194,7 @@ export default function Frames() {
           <section className="mb-10 rounded-3xl border border-pink-400/30 bg-pink-500/5 p-5">
             <h2 className="font-display font-bold text-xl text-pink-300 mb-2">Drops d’événement</h2>
             <p className="text-xs text-muted-foreground mb-5">Disponibles uniquement dans les boosters pendant leur événement associé.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">{eventFrames.map((frame) => <FrameShowcase key={frame.id} frame={frame} isUnlocked={unlockedFrameIds.has(frame.id)} onClick={() => handleFrameClick(frame)} />)}</div>
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">{eventFrames.map((frame) => <FrameShowcase key={frame.id} frame={frame} isUnlocked={unlockedFrameIds.has(frame.id)} onClick={() => handleFrameClick(frame)} />)}</div>
           </section>
         )}
 
@@ -205,7 +205,7 @@ export default function Frames() {
               <ShoppingBag className="w-5 h-5 text-accent" />
               <h2 className="font-heading font-bold text-lg">Boutique</h2>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
               {shopFrames.map(frame => (
                 <FrameShowcase
                   key={frame.id}
@@ -226,7 +226,7 @@ export default function Frames() {
               <h2 className="font-heading font-bold text-lg">Drop Boosters</h2>
               <span className="text-xs text-muted-foreground">(Très rare)</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
               {boosterFrames.map(frame => (
                 <FrameShowcase
                   key={frame.id}
@@ -246,7 +246,7 @@ export default function Frames() {
               <Trophy className="w-5 h-5 text-yellow-400" />
               <h2 className="font-heading font-bold text-lg">Quêtes & Défis</h2>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
               {questFrames.map(frame => (
                 <FrameShowcase
                   key={frame.id}
@@ -266,7 +266,7 @@ export default function Frames() {
               <Star className="w-5 h-5 text-green-400" />
               <h2 className="font-heading font-bold text-lg">Succès</h2>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
               {achievementFrames.map(frame => (
                 <FrameShowcase
                   key={frame.id}

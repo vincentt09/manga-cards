@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Users, Shield, Crown, Star, Search, Edit2, Save, UserCheck, Mail, Calendar, TrendingUp, Coins, Gem, AlertTriangle, Trash2, Ban, CheckCircle2 } from "lucide-react";
+import { Users, Shield, Crown, Star, Search, Edit2, Save, UserCheck, Mail, Calendar, TrendingUp, Coins, Gem, AlertTriangle, Trash2, Ban, CheckCircle2, RotateCcw, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
@@ -25,20 +25,30 @@ const numberValue = value => Math.max(0, Math.floor(Number(value) || 0));
 export default function UserManagement({ users, profiles, currentUser, onUserUpdate }) {
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
   const [selectedId, setSelectedId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [resetTarget, setResetTarget] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({});
   const { toast } = useToast();
+  const getProfile = userId => profiles.find(profile => profile.created_by_id === userId);
 
   const filteredUsers = useMemo(() => users.filter(item => {
     const query = search.trim().toLowerCase();
     const matchesSearch = !query || item.full_name?.toLowerCase().includes(query) || item.email?.toLowerCase().includes(query);
-    return matchesSearch && (filterRole === "all" || item.role === filterRole);
-  }), [users, search, filterRole]);
+    const suspended = item.status === "suspended" && (!item.suspended_until || new Date(item.suspended_until) > new Date());
+    return matchesSearch && (filterRole === "all" || item.role === filterRole) && (filterStatus === "all" || (filterStatus === "suspended" ? suspended : !suspended));
+  }).sort((a, b) => {
+    if (sortBy === "name") return String(a.full_name || a.email).localeCompare(String(b.full_name || b.email), "fr");
+    if (sortBy === "coins") return numberValue(profiles.find(profile => profile.created_by_id === b.id)?.coins) - numberValue(profiles.find(profile => profile.created_by_id === a.id)?.coins);
+    return new Date(b.created_date || 0) - new Date(a.created_date || 0);
+  }), [users, profiles, search, filterRole, filterStatus, sortBy]);
 
-  const getProfile = userId => profiles.find(profile => profile.created_by_id === userId);
   const selectedUser = users.find(item => item.id === selectedId);
+  const orphanProfiles = profiles.filter(profile => !users.some(item => item.id === profile.created_by_id));
 
   const openEditor = user => {
     const profile = getProfile(user.id);
@@ -82,23 +92,55 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
     if (!deleteTarget || saving) return;
     setSaving(true);
     try {
-      await appClient.entities.User.delete(deleteTarget.id);
+      const result = await appClient.entities.User.delete(deleteTarget.id);
       await onUserUpdate?.();
       setDeleteTarget(null);
-      toast({ title: "Compte supprimé", description: `${deleteTarget.email} et ses données de jeu ont été effacés.` });
+      setDeleteConfirmation("");
+      toast({ title: "Compte définitivement supprimé", description: `${deleteTarget.email} et ${numberValue(result.removed_total)} éléments ont été effacés de MongoDB.` });
     } catch (error) {
       toast({ title: "Suppression impossible", description: error.message, variant: "destructive" });
     } finally { setSaving(false); }
   };
 
+  const resetPlayer = async () => {
+    if (!resetTarget || saving) return;
+    setSaving(true);
+    try {
+      const response = await appClient.functions.invoke("adminResetPlayer", { user_id: resetTarget.id });
+      await onUserUpdate?.();
+      setResetTarget(null);
+      setSelectedId(null);
+      toast({ title: "Progression réinitialisée", description: `${numberValue(response.data?.removed_total)} éléments supprimés. Le compte reste actif avec le solde de départ.` });
+    } catch (error) {
+      toast({ title: "Réinitialisation impossible", description: error.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  const cleanupOrphans = async () => {
+    if (saving || !orphanProfiles.length) return;
+    setSaving(true);
+    try {
+      const response = await appClient.functions.invoke("adminCleanupOrphanData");
+      await onUserUpdate?.();
+      toast({ title: "Données orphelines nettoyées", description: `${numberValue(response.data?.removed_total)} éléments sans compte ont été supprimés.` });
+    } catch (error) {
+      toast({ title: "Nettoyage impossible", description: error.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row">
         <div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Rechercher un pseudo ou un e-mail…" value={search} onChange={event => setSearch(event.target.value)} className="pl-11 h-11 bg-secondary/30" /></div>
-        <div className="flex gap-2 flex-wrap">{["all", ...ROLES.map(role => role.id)].map(roleId => <Button key={roleId} size="sm" variant={filterRole === roleId ? "default" : "outline"} onClick={() => setFilterRole(roleId)}>{roleId === "all" ? "Tous" : ROLES.find(role => role.id === roleId)?.label}</Button>)}</div>
+        <div className="grid grid-cols-2 gap-2 sm:flex">
+          <select aria-label="Filtrer par état" className="h-11 rounded-md border border-input bg-background px-3 text-sm" value={filterStatus} onChange={event => setFilterStatus(event.target.value)}><option value="all">Tous les états</option><option value="active">Actifs</option><option value="suspended">Suspendus</option></select>
+          <select aria-label="Trier les joueurs" className="h-11 rounded-md border border-input bg-background px-3 text-sm" value={sortBy} onChange={event => setSortBy(event.target.value)}><option value="newest">Plus récents</option><option value="name">Nom A–Z</option><option value="coins">Plus riches</option></select>
+        </div>
       </div>
+      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">{["all", ...ROLES.map(role => role.id)].map(roleId => <Button className="shrink-0" key={roleId} size="sm" variant={filterRole === roleId ? "default" : "outline"} onClick={() => setFilterRole(roleId)}>{roleId === "all" ? "Tous" : ROLES.find(role => role.id === roleId)?.label}</Button>)}</div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{ROLES.map(role => { const Icon = role.icon; return <div key={role.id} className={`rounded-2xl border p-4 ${role.color}`}><div className="flex justify-between"><Icon className="w-5 h-5" /><strong className="text-2xl">{users.filter(user => user.role === role.id).length}</strong></div><p className="mt-2 text-xs font-bold uppercase">{role.label}</p></div>; })}</div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{ROLES.map(role => { const Icon = role.icon; return <div key={role.id} className={`rounded-2xl border p-4 ${role.color}`}><div className="flex justify-between"><Icon className="w-5 h-5" /><strong className="text-2xl">{users.filter(user => user.role === role.id).length}</strong></div><p className="mt-2 text-xs font-bold uppercase">{role.label}</p></div>; })}</div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><div className="rounded-xl border border-border bg-card p-3 text-sm"><Activity className="mr-2 inline h-4 w-4 text-emerald-400"/><strong>{users.filter(item => item.status !== "suspended").length}</strong> comptes actifs</div><div className="rounded-xl border border-border bg-card p-3 text-sm"><Ban className="mr-2 inline h-4 w-4 text-red-400"/><strong>{users.filter(item => item.status === "suspended").length}</strong> suspendus</div><div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card p-3 text-sm"><span><AlertTriangle className="mr-2 inline h-4 w-4 text-yellow-400"/><strong>{orphanProfiles.length}</strong> profils orphelins</span>{orphanProfiles.length > 0 && <Button size="sm" variant="outline" disabled={saving} onClick={cleanupOrphans}>Nettoyer</Button>}</div></div>
 
       <div className="space-y-3">{filteredUsers.map(user => {
         const profile = getProfile(user.id);
@@ -109,7 +151,7 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
               <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 grid place-items-center shrink-0 font-bold text-primary">{(user.full_name || "?")[0].toUpperCase()}</div>
               <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold truncate">{user.full_name || "Utilisateur"}</h3><RoleBadge role={user.role} />{suspended && <span className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-400"><Ban className="w-3 h-3" />SUSPENDU</span>}</div>
                 <p className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground truncate"><Mail className="w-3 h-3" />{user.email}</p>
-                <div className="flex flex-wrap gap-3 mt-3 text-xs"><span className="flex gap-1"><Coins className="w-3 h-3 text-yellow-400" />{numberValue(profile?.coins).toLocaleString()}</span><span className="flex gap-1"><Gem className="w-3 h-3 text-cyan-400" />{numberValue(profile?.gems)}</span><span className="flex gap-1"><TrendingUp className="w-3 h-3 text-green-400" />{numberValue(profile?.xp).toLocaleString()} XP</span><span className="flex gap-1 text-muted-foreground"><Calendar className="w-3 h-3" />{new Date(user.created_date).toLocaleDateString("fr-FR")}</span></div>
+                <div className="flex flex-wrap gap-3 mt-3 text-xs"><span className="flex gap-1"><Coins className="w-3 h-3 text-yellow-400" />{numberValue(profile?.coins).toLocaleString()}</span><span className="flex gap-1"><Gem className="w-3 h-3 text-cyan-400" />{numberValue(profile?.gems)}</span><span className="flex gap-1"><TrendingUp className="w-3 h-3 text-green-400" />{numberValue(profile?.xp).toLocaleString()} XP</span><span className="flex gap-1 text-muted-foreground"><Calendar className="w-3 h-3" />Inscrit {new Date(user.created_date).toLocaleDateString("fr-FR")}</span>{user.last_login_at && <span className="text-muted-foreground">Vu {new Date(user.last_login_at).toLocaleDateString("fr-FR")}</span>}</div>
               </div>
             </div>
             <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openEditor(user)}><Edit2 className="w-4 h-4 mr-1.5" />Gérer</Button><Button size="sm" variant="outline" disabled={user.id === currentUser?.id} onClick={() => setDeleteTarget(user)} className="border-red-500/30 text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></Button></div>
@@ -132,10 +174,12 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
           {form.status === "suspended" && <label className="text-xs font-semibold sm:col-span-2">Motif<Input className="mt-1.5" placeholder="Message affiché au joueur" value={form.suspension_reason || ""} onChange={event => setForm(current => ({ ...current, suspension_reason: event.target.value }))} /></label>}
         </div>
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" />Les changements de solde, profil et accès sont appliqués immédiatement.</div>
-        <DialogFooter><Button variant="outline" onClick={() => setSelectedId(null)}>Annuler</Button><Button disabled={saving || !form.full_name?.trim()} onClick={saveUser}><Save className="w-4 h-4 mr-1.5" />Enregistrer</Button></DialogFooter>
+        <DialogFooter className="gap-2 sm:justify-between"><Button variant="outline" className="border-orange-500/30 text-orange-300" disabled={selectedUser?.id === currentUser?.id} onClick={() => setResetTarget(selectedUser)}><RotateCcw className="mr-1.5 h-4 w-4" />Réinitialiser la progression</Button><div className="flex gap-2"><Button variant="outline" onClick={() => setSelectedId(null)}>Annuler</Button><Button disabled={saving || !form.full_name?.trim()} onClick={saveUser}><Save className="w-4 h-4 mr-1.5" />Enregistrer</Button></div></DialogFooter>
       </DialogContent></Dialog>
 
-      <Dialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2 text-red-400"><AlertTriangle className="w-5 h-5" />Supprimer définitivement ce compte ?</DialogTitle><DialogDescription>Le compte {deleteTarget?.email}, ses cartes, cadres, transactions, talents et sessions seront supprimés. Cette action est irréversible.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>Annuler</Button><Button disabled={saving} onClick={deleteUser} className="bg-red-600 hover:bg-red-700"><Trash2 className="w-4 h-4 mr-1.5" />Supprimer le compte</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) { setDeleteTarget(null); setDeleteConfirmation(""); } }}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2 text-red-400"><AlertTriangle className="w-5 h-5" />Supprimer définitivement ce compte ?</DialogTitle><DialogDescription>Le compte {deleteTarget?.email}, ses cartes, cadres, transactions, talents et sessions seront supprimés de MongoDB. Cette action est irréversible.</DialogDescription></DialogHeader><label className="text-xs font-semibold">Recopie l’e-mail pour confirmer<Input className="mt-1.5" value={deleteConfirmation} onChange={event => setDeleteConfirmation(event.target.value)} placeholder={deleteTarget?.email} /></label><DialogFooter><Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteConfirmation(""); }}>Annuler</Button><Button disabled={saving || deleteConfirmation.trim().toLowerCase() !== deleteTarget?.email?.toLowerCase()} onClick={deleteUser} className="bg-red-600 hover:bg-red-700"><Trash2 className="w-4 h-4 mr-1.5" />Supprimer définitivement</Button></DialogFooter></DialogContent></Dialog>
+
+      <Dialog open={!!resetTarget} onOpenChange={open => !open && setResetTarget(null)}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2 text-orange-300"><RotateCcw className="h-5 w-5" />Réinitialiser la progression ?</DialogTitle><DialogDescription>Le compte {resetTarget?.email} sera conservé, mais ses cartes, cadres, talents, quêtes, ventes et progression seront effacés. Il repartira avec 2 500 pièces et 100 gemmes.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setResetTarget(null)}>Annuler</Button><Button disabled={saving} onClick={resetPlayer} className="bg-orange-600 hover:bg-orange-700"><RotateCcw className="mr-1.5 h-4 w-4" />Réinitialiser</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }

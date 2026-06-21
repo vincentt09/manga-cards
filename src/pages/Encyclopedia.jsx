@@ -139,7 +139,7 @@ export default function Encyclopedia() {
       <Navbar />
       <CurrencyBar profile={profile} cards={myCards} />
 
-      <div className="max-w-5xl mx-auto px-4 py-4">
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -170,13 +170,13 @@ export default function Encyclopedia() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap gap-2 mb-5">
-          <div className="relative flex-1 min-w-[160px]">
+        <div className="mb-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          <div className="relative col-span-2 flex-1 sm:min-w-[160px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input placeholder="Rechercher..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 bg-secondary/50" />
           </div>
           <Select value={animeFilter} onValueChange={setAnimeFilter}>
-            <SelectTrigger className="w-36 bg-secondary/50">
+            <SelectTrigger className="w-full bg-secondary/50 sm:w-36">
               <SelectValue placeholder="Anime" />
             </SelectTrigger>
             <SelectContent>
@@ -185,7 +185,7 @@ export default function Encyclopedia() {
             </SelectContent>
           </Select>
           <Select value={rarityFilter} onValueChange={setRarityFilter}>
-            <SelectTrigger className="w-32 bg-secondary/50">
+            <SelectTrigger className="w-full bg-secondary/50 sm:w-32">
               <Filter className="w-3.5 h-3.5 mr-1.5" /><SelectValue placeholder="Rareté" />
             </SelectTrigger>
             <SelectContent>
@@ -193,14 +193,14 @@ export default function Encyclopedia() {
               {Object.entries(RARITY_CONFIG).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}
             </SelectContent>
           </Select>
-          <div className="flex gap-1">
+          <div className="col-span-2 grid grid-cols-3 gap-1 sm:flex">
             {[
               { id: "all", label: "Tout" },
               { id: "owned", label: "✓ Possédé" },
               { id: "missing", label: "🔒 Manquant" },
             ].map(o => (
               <button key={o.id} onClick={() => setOwnedFilter(o.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${ownedFilter === o.id ? "bg-primary text-white" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}`}>
+                className={`min-h-10 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all sm:px-3 sm:text-xs ${ownedFilter === o.id ? "bg-primary text-white" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}`}>
                 {o.label}
               </button>
             ))}
@@ -208,7 +208,7 @@ export default function Encyclopedia() {
         </div>
 
         {/* Grid */}
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+        <div className="grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
           {filtered.map(cardDef => {
             const key = `${cardDef.name}|${cardDef.anime}|${cardDef.rarity}|${cardDef.variant || ""}`;
             return (

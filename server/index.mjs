@@ -318,6 +318,14 @@ const validPassword = (password, user) => {
   return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
 };
 const publicUser = ({ password_hash, password_salt, ...user }) => user;
+const recordAdminAudit = (db, admin, action, target, details = {}) => {
+  db.entities.AdminAudit ||= [];
+  db.entities.AdminAudit.unshift({
+    id: id(), action, target_user_id: target?.id || null, target_email: target?.email || null,
+    details, created_by_id: admin.id, created_by: admin.email, created_date: new Date().toISOString(),
+  });
+  db.entities.AdminAudit = db.entities.AdminAudit.slice(0, 1000);
+};
 const isUserSuspended = (user) => user?.status === "suspended"
   && (!user.suspended_until || new Date(user.suspended_until).getTime() > Date.now());
 const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000;
@@ -417,6 +425,7 @@ async function authRoutes(req, res, pathname, db) {
     const password = hashPassword(input.password);
     const user = { id: id(), email, full_name: input.full_name || "", role: db.users.length ? "user" : "admin", password_hash: password.hash, password_salt: password.salt, created_date: new Date().toISOString() };
     db.users.push(user); seedProfile(db, user);
+    user.last_login_at = new Date().toISOString();
     const token = createSession(db, user.id); await writeDb(db);
     return json(res, 201, { access_token: token, user: publicUser(user) });
   }
@@ -425,6 +434,7 @@ async function authRoutes(req, res, pathname, db) {
     const user = db.users.find((item) => item.email === input.email?.trim().toLowerCase());
     if (!user || !user.password_hash || !validPassword(input.password || "", user)) return json(res, 401, { message: "E-mail ou mot de passe incorrect." });
     if (isUserSuspended(user)) return json(res, 403, { message: user.suspension_reason || "Ce compte est temporairement suspendu." });
+    user.last_login_at = new Date().toISOString();
     const token = createSession(db, user.id); await writeDb(db);
     return json(res, 200, { access_token: token, user: publicUser(user) });
   }
@@ -502,6 +512,7 @@ async function authRoutes(req, res, pathname, db) {
     let user = db.users.find((item) => item.email === info.email);
     if (!user) { user = { id: id(), email: info.email, full_name: info.name || "", avatar_url: info.picture, role: db.users.length ? "user" : "admin", provider: "google", created_date: new Date().toISOString() }; db.users.push(user); seedProfile(db, user); }
     if (isUserSuspended(user)) { await writeDb(db); return redirect(res, `${oauthState.return_origin || frontendUrl}/login?error=account_suspended`); }
+    user.last_login_at = new Date().toISOString();
     const token = createSession(db, user.id); await writeDb(db);
     const target = new URL(oauthState.return_path, oauthState.return_origin || frontendUrl); target.searchParams.set("access_token", token);
     return redirect(res, target.toString());
@@ -543,6 +554,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   const match = pathname.match(/^\/api\/entities\/([^/]+)(?:\/(.+))?$/); if (!match) return false;
   const [, name, action] = match;
   if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name)) return json(res, 400, { message: "Nom d'entite invalide." });
+  if (name === "AdminAudit" && user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
   if (name === "ChatMessage") {
     db.entities.ChatMessage ||= [];
     const messages = db.entities.ChatMessage;
@@ -597,6 +609,9 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
       found.updated_date = new Date().toISOString();
       const playerProfile = (db.entities.PlayerProfile || []).find((item) => item.created_by_id === found.id);
       if (playerProfile && "full_name" in input) playerProfile.display_name = String(input.full_name || "").trim();
+      recordAdminAudit(db, user, "user_updated", found, {
+        fields: Object.keys(input).filter((field) => ["role", "full_name", "status", "suspended_until", "suspension_reason"].includes(field)),
+      });
       await writeDb(db); return json(res, 200, publicUser(found));
     }
     if (req.method === "DELETE" && action) {
@@ -604,10 +619,24 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
       const found = db.users.find((item) => item.id === action); if (!found) return json(res, 404, { message: "Utilisateur introuvable." });
       if (found.id === user.id) return json(res, 400, { message: "Tu ne peux pas supprimer ton propre compte administrateur." });
       if (found.role === "admin" && db.users.filter((candidate) => candidate.role === "admin").length <= 1) return json(res, 400, { message: "Le dernier administrateur ne peut pas être supprimé." });
-      const belongsToUser = (row) => [row.created_by_id, row.user_id, row.owner_id, row.seller_id, row.buyer_id].includes(found.id)
+      const belongsToUser = (row) => [row.created_by_id, row.user_id, row.owner_id, row.seller_id].includes(found.id)
         || row.created_by === found.email;
       const removedByEntity = {};
       for (const [entityName, rows] of Object.entries(db.entities)) {
+        if (entityName === "AdminAudit") continue;
+        if (entityName === "Auction") {
+          for (const auction of rows || []) {
+            if (auction.highest_bidder_id === found.id && auction.seller_id !== found.id) {
+              auction.highest_bidder_id = null;
+              auction.highest_bidder_name = null;
+              auction.current_bid = Number(auction.starting_price || 1);
+              auction.updated_date = new Date().toISOString();
+            }
+          }
+        }
+        for (const row of rows || []) {
+          if (row.buyer_id === found.id && !belongsToUser(row)) row.buyer_id = null;
+        }
         const kept = (rows || []).filter((row) => !belongsToUser(row));
         removedByEntity[entityName] = (rows || []).length - kept.length;
         db.entities[entityName] = kept;
@@ -615,7 +644,9 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
       db.users = db.users.filter((candidate) => candidate.id !== found.id);
       db.sessions = db.sessions.filter((session) => session.user_id !== found.id);
       db.resetTokens = db.resetTokens.filter((token) => token.user_id !== found.id);
-      await writeDb(db); return json(res, 200, { success: true, removed: removedByEntity });
+      const removedTotal = Object.values(removedByEntity).reduce((sum, count) => sum + count, 0);
+      recordAdminAudit(db, user, "user_deleted", found, { removed_total: removedTotal, removed_by_entity: removedByEntity });
+      await writeDb(db); return json(res, 200, { success: true, removed_total: removedTotal, removed: removedByEntity });
     }
     return json(res, 403, { message: "Operation interdite sur les utilisateurs." });
   }
@@ -697,7 +728,60 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "getSystemMarket") {
+  if (name === "adminCleanupOrphanData") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const validUserIds = new Set(db.users.map((candidate) => candidate.id));
+    const validEmails = new Set(db.users.map((candidate) => candidate.email));
+    const playerEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
+    const removed = {};
+    for (const entityName of playerEntities) {
+      const rows = entities[entityName] || [];
+      const kept = rows.filter((row) => {
+        if (row.created_by_id && !validUserIds.has(row.created_by_id)) return false;
+        if (!row.created_by_id && row.created_by && !validEmails.has(row.created_by)) return false;
+        if (row.seller_id && row.seller_id !== "system" && !validUserIds.has(row.seller_id)) return false;
+        return true;
+      });
+      removed[entityName] = rows.length - kept.length;
+      entities[entityName] = kept;
+    }
+    const removedTotal = Object.values(removed).reduce((sum, count) => sum + count, 0);
+    recordAdminAudit(db, user, "orphan_cleanup", null, { removed_total: removedTotal, removed_by_entity: removed });
+    result = { success: true, removed_total: removedTotal, removed };
+  } else if (name === "adminResetPlayer") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === input.user_id);
+    if (!target) return json(res, 404, { message: "Utilisateur introuvable." });
+    if (target.id === user.id) return json(res, 400, { message: "Utilise un compte joueur distinct pour tester une réinitialisation." });
+    const targetProfile = (entities.PlayerProfile || []).find((item) => item.created_by_id === target.id);
+    if (!targetProfile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const playerEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
+    const removed = {};
+    for (const entityName of playerEntities) {
+      const rows = entities[entityName] || [];
+      if (entityName === "Auction") {
+        for (const auction of rows) {
+          if (auction.highest_bidder_id === target.id && auction.seller_id !== target.id) {
+            auction.highest_bidder_id = null;
+            auction.highest_bidder_name = null;
+            auction.current_bid = Number(auction.starting_price || 1);
+          }
+        }
+      }
+      const kept = rows.filter((row) => ![row.created_by_id, row.user_id, row.owner_id, row.seller_id].includes(target.id) && row.created_by !== target.email);
+      removed[entityName] = rows.length - kept.length;
+      entities[entityName] = kept;
+    }
+    Object.assign(targetProfile, {
+      level: 1, xp: 0, coins: 2500, gems: 100, talent_points: 0, boosters_opened: 0,
+      total_cards: 0, boosters_count: {}, pity_counter: 0, claimed_rewards: [],
+      pve_wins: 0, pve_losses: 0, pve_max_stage: 1, pve_energy: PVE_MAX_ENERGY,
+      pve_cleared_stages: [], pve_deck: [], system_market_purchases: [], updated_date: new Date().toISOString(),
+    });
+    const removedTotal = Object.values(removed).reduce((sum, count) => sum + count, 0);
+    recordAdminAudit(db, user, "player_reset", target, { removed_total: removedTotal, removed_by_entity: removed });
+    result = { success: true, removed_total: removedTotal, removed, profile: targetProfile };
+  } else if (name === "getSystemMarket") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     const market = getSystemMarketOffers(db);
     const purchases = new Set(Array.isArray(profile.system_market_purchases) ? profile.system_market_purchases : []);

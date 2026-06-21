@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Users, Image as ImageIcon, BarChart3, Coins, Package, Layers,
-  Search, Crown, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X
+  Search, Crown, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ const TABS = [
   { id: "events",    label: "Événements",     icon: Zap },
   { id: "frames",    label: "Cadres",         icon: Crown },
   { id: "economy",   label: "Économie",       icon: Coins },
+  { id: "audit",     label: "Journal",        icon: ClipboardList },
 ];
 
 // ─── Cleanup Duplicate Cards Function ─────────────────────────────────────────
@@ -377,6 +378,17 @@ function EconomyTab({ profiles, onGiveCoinsAll, onGiveGemsAll }) {
 }
 
 // ─── Main Admin Page ──────────────────────────────────────────────────────────
+function AuditLog({ entries }) {
+  const labels = { user_updated: "Compte modifié", user_deleted: "Compte supprimé", player_reset: "Progression réinitialisée", orphan_cleanup: "Données orphelines nettoyées" };
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="flex items-center gap-2 font-display text-lg font-bold"><ClipboardList className="h-5 w-5 text-primary" />Journal de sécurité</h2><p className="mt-1 text-xs text-muted-foreground">Les actions sensibles des administrateurs sont conservées ici.</p></div>
+      <div className="space-y-2">{entries.map(entry => <article key={entry.id} className="rounded-xl border border-border bg-card/70 p-4"><div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"><strong className="text-sm">{labels[entry.action] || entry.action}</strong><time className="text-[11px] text-muted-foreground">{new Date(entry.created_date).toLocaleString("fr-FR")}</time></div><p className="mt-1 break-all text-xs text-muted-foreground">Cible : {entry.target_email || "inconnue"} · Par : {entry.created_by}</p>{entry.details?.removed_total !== undefined && <p className="mt-2 text-xs text-orange-300">{Number(entry.details.removed_total).toLocaleString("fr-FR")} éléments concernés</p>}</article>)}</div>
+      {!entries.length && <div className="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Aucune action sensible enregistrée.</div>}
+    </div>
+  );
+}
+
 export default function Admin() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -410,6 +422,10 @@ export default function Admin() {
   const { data: listings = [] } = useQuery({
     queryKey: ["admin_listings"],
     queryFn: () => appClient.entities.LimitedCardListing.list("-created_date", 200),
+  });
+  const { data: auditEntries = [] } = useQuery({
+    queryKey: ["admin_audit"],
+    queryFn: () => appClient.entities.AdminAudit.list("-created_date", 200),
   });
 
   // Guard: admin only
@@ -527,7 +543,7 @@ export default function Admin() {
                 </div>
               </>
             )}
-            {tab === "users"    && <UserManagement users={users} profiles={profiles} currentUser={user} onUserUpdate={() => Promise.all([queryClient.invalidateQueries({ queryKey: ["admin_users"] }), queryClient.invalidateQueries({ queryKey: ["admin_profiles"] })])} />}
+            {tab === "users"    && <UserManagement users={users} profiles={profiles} currentUser={user} onUserUpdate={() => Promise.all([queryClient.invalidateQueries({ queryKey: ["admin_users"] }), queryClient.invalidateQueries({ queryKey: ["admin_profiles"] }), queryClient.invalidateQueries({ queryKey: ["admin_audit"] })])} />}
             {tab === "inventory" && <InventoryDashboard listings={listings} profiles={profiles} transactions={transactions} />}
             {tab === "players"  && <PlayersTab profiles={profiles} users={users} onEditCoins={handleEditCoins} onResetPlayer={handleResetPlayer} />}
             {tab === "cards"    && <CardManager cardDefinitions={cardDefinitions} overrides={overrides} onSave={handleSaveImageOverride} onReset={handleResetImageOverride} />}
@@ -535,6 +551,7 @@ export default function Admin() {
             {tab === "events"   && <DropEventsManager />}
             {tab === "frames"   && <FramesManager />}
             {tab === "economy"  && <EconomyTab profiles={profiles} onGiveCoinsAll={handleGiveCoinsAll} onGiveGemsAll={handleGiveGemsAll} />}
+            {tab === "audit"    && <AuditLog entries={auditEntries} />}
           </motion.div>
         </AnimatePresence>
       </div>

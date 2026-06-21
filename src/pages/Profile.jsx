@@ -105,24 +105,24 @@ export default function Profile() {
       <Navbar />
       <CurrencyBar profile={profile} cards={cards} />
 
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+      <div className="mx-auto max-w-3xl space-y-6 px-3 py-5 sm:px-4 sm:py-6">
         {/* Profile Header */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           className="rounded-2xl border border-border bg-card overflow-hidden">
           <div className={`h-24 bg-gradient-to-r ${bannerGradient} relative`}>
             <div className="absolute inset-0 shimmer" />
           </div>
-          <div className="px-5 pb-5 -mt-10 relative">
+          <div className="relative -mt-10 px-4 pb-5 sm:px-5">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center border-4 border-card overflow-hidden">
               {avatarUrl ? <img src={avatarUrl} alt="Avatar du joueur" className="w-full h-full object-cover" /> : <User className="w-8 h-8 text-white" />}
             </div>
-            <div className="mt-3 flex items-center justify-between">
-              <div>
-                <h1 className="font-display text-xl font-bold">{profile?.display_name || user?.full_name || "Joueur"}</h1>
+            <div className="mt-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="break-words font-display text-xl font-bold">{profile?.display_name || user?.full_name || "Joueur"}</h1>
                 <div className="inline-flex items-center gap-1.5 mt-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1 text-[11px] font-bold text-yellow-300">
                   <Crown className="w-3 h-3" /> {equippedTitle.label}
                 </div>
-                <p className="text-sm text-muted-foreground">{user?.email}</p>
+                <p className="break-all text-xs text-muted-foreground sm:text-sm">{user?.email}</p>
                 {profile?.favorite_anime && <p className="text-xs text-primary mt-1">Manga préféré : {profile.favorite_anime}</p>}
                 {profile?.bio && <p className="text-sm text-muted-foreground mt-2 max-w-xl">{profile.bio}</p>}
               </div>
@@ -177,21 +177,21 @@ export default function Profile() {
 
         {/* Currencies */}
         <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4 flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card p-3 sm:gap-3 sm:p-4">
             <div className="w-12 h-12 rounded-xl bg-yellow-500/10 flex items-center justify-center">
               <Coins className="w-6 h-6 text-yellow-400" />
             </div>
             <div>
-              <p className="font-display text-2xl font-bold text-yellow-300">{(profile?.coins || 0).toLocaleString()}</p>
+              <p className="break-all font-display text-xl font-bold text-yellow-300 sm:text-2xl">{(profile?.coins || 0).toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">Pièces</p>
             </div>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4 flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card p-3 sm:gap-3 sm:p-4">
             <div className="w-12 h-12 rounded-xl bg-cyan-500/10 flex items-center justify-center">
               <Gem className="w-6 h-6 text-cyan-400" />
             </div>
             <div>
-              <p className="font-display text-2xl font-bold text-cyan-300">{profile?.gems || 0}</p>
+              <p className="break-all font-display text-xl font-bold text-cyan-300 sm:text-2xl">{profile?.gems || 0}</p>
               <p className="text-xs text-muted-foreground">Gemmes</p>
             </div>
           </div>
