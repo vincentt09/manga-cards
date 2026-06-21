@@ -7,6 +7,7 @@ import { GridFSBucket, MongoClient, ObjectId } from "mongodb";
 import { BOOSTER_TYPES, CARD_POOL, getCoinReward, getDuplicatesForUpgrade, getLevelFromXp, getTotalIncome, getXpReward } from "../src/lib/gameData.js";
 import { getTalent } from "../src/lib/talentData.js";
 import { LEVEL_REWARDS } from "../src/lib/levelRewards.js";
+import { DAILY_QUESTS_POOL, WEEKLY_QUESTS_POOL } from "../src/lib/questData.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envFile = path.join(root, ".env");
@@ -74,6 +75,20 @@ const FUSION_RECIPES = {
   normale: { count: 5, copiesEach: 5, result: "legendaire", cost: 50_000, minLevel: 10, xp: 1_000 },
   legendaire: { count: 5, copiesEach: 3, result: "secrète", cost: 250_000, minLevel: 15, xp: 5_000 },
   "secrète": { count: 5, copiesEach: 2, result: "manga_god", cost: 1_000_000, minLevel: 25, xp: 25_000, weekly: true },
+};
+const QUEST_DEFINITIONS = new Map([...DAILY_QUESTS_POOL, ...WEEKLY_QUESTS_POOL].map((quest) => [quest.quest_id, quest]));
+const createQuestRow = (item) => {
+  const definition = QUEST_DEFINITIONS.get(item.quest_id);
+  if (!definition || !["daily", "weekly"].includes(item.type)) return null;
+  const loginQuest = item.quest_id === "login_daily";
+  return {
+    ...definition,
+    type: item.type,
+    progress: loginQuest ? 1 : 0,
+    completed: loginQuest,
+    claimed: false,
+    expires_at: item.expires_at,
+  };
 };
 const weekKey = (date = new Date()) => {
   const value = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -519,14 +534,25 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   if (req.method === "POST" && action === "bulk") {
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Les talents doivent être débloqués depuis l'arbre de talents." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
-    const input = await body(req);
+    let input = await body(req);
+    if (!Array.isArray(input)) return json(res, 400, { message: "Liste invalide." });
+    if (name === "Quest" && user.role !== "admin") {
+      const now = Date.now();
+      const requestedTypes = new Set(input.map((item) => item.type));
+      const existingTypes = new Set(rows.filter((row) => row.created_by_id === user.id && new Date(row.expires_at).getTime() > now).map((row) => row.type));
+      input = input.filter((item) => !existingTypes.has(item.type) && requestedTypes.has(item.type)).map(createQuestRow).filter(Boolean);
+    }
     if (name === "PlayerFrame" && user.role !== "admin" && input.some((item) => (db.entities.CardFrame || []).some((frame) => frame.id === item.frame_id && ["endgame", "gift", "event"].includes(frame.source_type)))) return json(res, 403, { message: "Ce cadre doit être obtenu par sa méthode officielle." });
     const created = input.map((item) => ({ ...item, id: id(), created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString() })); rows.push(...created); await writeDb(db); return json(res, 201, created);
   }
   if (req.method === "POST" && !action) {
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Les talents doivent être débloqués depuis l'arbre de talents." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
-    const input = await body(req);
+    let input = await body(req);
+    if (name === "Quest" && user.role !== "admin") {
+      input = createQuestRow(input);
+      if (!input) return json(res, 400, { message: "Quête invalide." });
+    }
     if (name === "PlayerFrame" && user.role !== "admin" && (db.entities.CardFrame || []).some((frame) => frame.id === input.frame_id && ["endgame", "gift", "event"].includes(frame.source_type))) return json(res, 403, { message: "Ce cadre doit être obtenu par sa méthode officielle." });
     const created = { ...input, id: id(), created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString(), updated_date: new Date().toISOString() }; rows.push(created); await writeDb(db); return json(res, 201, created);
   }
@@ -537,6 +563,12 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     const input = await body(req); delete input.id; delete input.created_by_id; delete input.created_by; delete input.created_date;
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Modification de talent interdite." });
     if (name === "PlayerProfile" && user.role !== "admin") { delete input.talent_points; delete input.claimed_rewards; }
+    if (name === "Quest" && user.role !== "admin") {
+      delete input.claimed;
+      delete input.claimed_at;
+      delete input.reward_coins;
+      delete input.reward_gems;
+    }
     Object.assign(item, input, { id: item.id, updated_date: new Date().toISOString() }); await writeDb(db); return json(res, 200, present(item));
   }
   if (req.method === "DELETE") {
@@ -611,6 +643,28 @@ async function runFunction(req, res, name, db, user) {
     profile.claimed_rewards = [...claimed, reward.level];
     profile.updated_date = new Date().toISOString();
     result = { level: reward.level, coins: profile.coins, gems: profile.gems, talent_points: profile.talent_points };
+  } else if (name === "claimQuest") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const quest = (entities.Quest || []).find((item) => item.id === input.quest_id && item.created_by_id === user.id);
+    if (!quest) return json(res, 404, { message: "Quête introuvable." });
+    if (quest.claimed) return json(res, 409, { message: "Cette récompense a déjà été récupérée." });
+    if (quest.expires_at && new Date(quest.expires_at).getTime() < Date.now()) return json(res, 410, { message: "Cette quête est expirée." });
+    if (!quest.completed || Number(quest.progress || 0) < Number(quest.target || 1)) return json(res, 403, { message: "Cette quête n’est pas encore terminée." });
+    const definition = QUEST_DEFINITIONS.get(quest.quest_id);
+    if (!definition || definition.target !== Number(quest.target)) return json(res, 400, { message: "Définition de quête invalide." });
+    const now = new Date().toISOString();
+    const duplicateQuests = (entities.Quest || []).filter((item) =>
+      item.created_by_id === user.id && item.quest_id === quest.quest_id && item.type === quest.type && item.expires_at === quest.expires_at
+    );
+    for (const duplicate of duplicateQuests) Object.assign(duplicate, { claimed: true, claimed_at: now, updated_date: now });
+    const coins = Number(definition.reward_coins || 0);
+    const gems = Number(definition.reward_gems || 0);
+    const xp = Math.round(coins / 10);
+    profile.coins = Number(profile.coins || 0) + coins;
+    profile.gems = Number(profile.gems || 0) + gems;
+    profile.xp = Number(profile.xp || 0) + xp;
+    profile.updated_date = now;
+    result = { quest_id: quest.id, rewards: { coins, gems, xp }, profile };
   } else if (name === "fuseCards") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     const recipe = FUSION_RECIPES[input.rarity];

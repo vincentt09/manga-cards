@@ -51,14 +51,7 @@ export default function DailyQuests({ profile, onCoinsEarned }) {
 
   const claimMutation = useMutation({
     mutationFn: async (quest) => {
-      await appClient.entities.Quest.update(quest.id, { claimed: true });
-      const newCoins = (profile.coins || 0) + quest.reward_coins;
-      const newGems = (profile.gems || 0) + (quest.reward_gems || 0);
-      await appClient.entities.PlayerProfile.update(profile.id, {
-        coins: newCoins,
-        gems: newGems,
-        xp: (profile.xp || 0) + Math.round(quest.reward_coins / 10),
-      });
+      return appClient.functions.invoke("claimQuest", { quest_id: quest.id });
     },
     onSuccess: (_, quest) => {
       queryClient.invalidateQueries({ queryKey: ["quests"] });
@@ -67,6 +60,11 @@ export default function DailyQuests({ profile, onCoinsEarned }) {
         title: `✅ Quête accomplie !`,
         description: `+${quest.reward_coins.toLocaleString()} pièces${quest.reward_gems > 0 ? ` · +${quest.reward_gems} gemmes` : ""}`,
       });
+    },
+    onError: (error) => {
+      queryClient.invalidateQueries({ queryKey: ["quests"] });
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      toast({ title: "Récompense non récupérée", description: error.message, variant: "destructive" });
     },
   });
 

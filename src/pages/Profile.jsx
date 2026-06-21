@@ -3,7 +3,7 @@ import { appClient } from "@/api/appClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { User, Package, Layers, Trophy, Zap, Crown, Coins, Gem, LogOut, Gift, ScrollText, BookOpen, History, Settings } from "lucide-react";
-import { ACHIEVEMENTS, getAchievementData } from "@/lib/achievements";
+import { ACHIEVEMENTS, PROFILE_TITLES, getAchievementData } from "@/lib/achievements";
 import { Link } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,19 @@ export default function Profile() {
   const achievementData = getAchievementData({ cards, profile, playerLevel: levelInfo.level });
   const achievements = ACHIEVEMENTS.map(a => ({ ...a, done: a.check(achievementData) }));
   const unlockedCount = achievements.filter(a => a.done).length;
+  const unlockedTitleIds = new Set([
+    "rookie",
+    ...achievements.filter((achievement) => achievement.done).map((achievement) => `achievement_${achievement.id}`),
+  ]);
+  const equippedTitle = PROFILE_TITLES.find((title) => title.id === profile?.equipped_title_id && unlockedTitleIds.has(title.id)) || PROFILE_TITLES[0];
+
+  const titleMutation = useMutation({
+    mutationFn: (titleId) => appClient.entities.PlayerProfile.update(profile.id, { equipped_title_id: titleId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      toast({ title: "Titre équipé", description: "Ton nouveau titre est maintenant visible sur ton profil." });
+    },
+  });
 
   // Claimable rewards count
   const claimed = profile?.claimed_rewards || [];
@@ -101,6 +114,9 @@ export default function Profile() {
             <div className="mt-3 flex items-center justify-between">
               <div>
                 <h1 className="font-display text-xl font-bold">{profile?.display_name || user?.full_name || "Joueur"}</h1>
+                <div className="inline-flex items-center gap-1.5 mt-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1 text-[11px] font-bold text-yellow-300">
+                  <Crown className="w-3 h-3" /> {equippedTitle.label}
+                </div>
                 <p className="text-sm text-muted-foreground">{user?.email}</p>
                 {profile?.favorite_anime && <p className="text-xs text-primary mt-1">Manga préféré : {profile.favorite_anime}</p>}
                 {profile?.bio && <p className="text-sm text-muted-foreground mt-2 max-w-xl">{profile.bio}</p>}
@@ -241,8 +257,19 @@ export default function Profile() {
                   <div className="min-w-0">
                     <p className={`text-sm font-semibold truncate ${a.done ? "" : "text-muted-foreground"}`}>{a.label}</p>
                     <p className="text-[10px] text-muted-foreground">{a.desc}</p>
+                    <p className={`text-[10px] mt-0.5 ${a.done ? "text-yellow-300" : "text-muted-foreground"}`}>Titre : {a.label}</p>
                   </div>
-                  {a.done && <span className="text-green-400 ml-auto shrink-0">✓</span>}
+                  {a.done && (
+                    <Button
+                      size="sm"
+                      variant={equippedTitle.id === `achievement_${a.id}` ? "default" : "outline"}
+                      className="ml-auto h-7 shrink-0 px-2 text-[10px]"
+                      disabled={!profile || titleMutation.isPending || equippedTitle.id === `achievement_${a.id}`}
+                      onClick={() => titleMutation.mutate(`achievement_${a.id}`)}
+                    >
+                      {equippedTitle.id === `achievement_${a.id}` ? "Équipé" : "Équiper"}
+                    </Button>
+                  )}
                 </motion.div>
               );
             })}

@@ -33,6 +33,15 @@ export const ACHIEVEMENTS = [
   { id: "fav_5",        label: "Coeur Généreux",      desc: "5 cartes en favoris",         icon: Heart,       check: (d) => d.favorites >= 5 },
 ];
 
+export const PROFILE_TITLES = [
+  { id: "rookie", label: "Nouveau Collectionneur", achievementId: null },
+  ...ACHIEVEMENTS.map((achievement) => ({
+    id: `achievement_${achievement.id}`,
+    label: achievement.label,
+    achievementId: achievement.id,
+  })),
+];
+
 export function getAchievementData({ cards, profile, playerLevel }) {
   const rarityCount = { common: 0, rare: 0, ultra_rare: 0, epic: 0, legendary: 0, secret: 0 };
   cards.forEach(c => { if (rarityCount[c.rarity] !== undefined) rarityCount[c.rarity]++; });
