@@ -1,31 +1,16 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { appClient } from "@/api/appClient";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Trophy, Medal, Crown } from "lucide-react";
 import Navbar from "@/components/game/Navbar";
 import CurrencyBar from "@/components/game/CurrencyBar";
+import { PROFILE_TITLES } from "@/lib/achievements";
 
-function calculatePlayerScore(profile, cards) {
-  const levelScore = (profile.level || 1) * 100;
-  const collectionPower = cards.reduce((sum, card) => sum + (card.power || 0), 0);
-  const rarityBonus = cards.reduce((sum, card) => {
-    const bonuses = {
-      common: 1,
-      rare: 2,
-      ultra_rare: 5,
-      epic: 10,
-      legendary: 25,
-      secret: 50,
-      manga_god: 100
-    };
-    return sum + (bonuses[card.rarity] || 1);
-  }, 0);
-  return levelScore + collectionPower + rarityBonus;
-}
+const getTitle = (titleId) => PROFILE_TITLES.find((title) => title.id === titleId)?.label || PROFILE_TITLES[0].label;
 
-function LeaderboardRow({ player, rank, currentUser }) {
-  const isCurrentUser = currentUser?.id === player.userId;
+function LeaderboardRow({ player, rank }) {
+  const isCurrentUser = player.isCurrentUser;
   
   const getRankIcon = (rank) => {
     if (rank === 1) return <Crown className="w-5 h-5 text-yellow-400" />;
@@ -76,6 +61,7 @@ function LeaderboardRow({ player, rank, currentUser }) {
           <span>•</span>
           <span>Puissance: {player.collectionPower.toLocaleString()}</span>
         </div>
+        <p className="mt-1 text-[10px] font-semibold text-yellow-300">♛ {getTitle(player.titleId)}</p>
       </div>
 
       <div className="text-right shrink-0">
@@ -123,6 +109,7 @@ function PodiumCard({ player, rank, height }) {
         <Crown className={`w-6 h-6 mx-auto mb-1 ${crownColors[rank]}`} />
         <p className="font-semibold text-sm truncate max-w-[120px]">{player.name}</p>
         <p className="text-xs text-muted-foreground">Niveau {player.level}</p>
+        <p className="text-[9px] font-semibold text-yellow-300 truncate max-w-[120px]">{getTitle(player.titleId)}</p>
       </div>
       <div className="flex items-center gap-1.5 mb-2">
         <Trophy className={`w-4 h-4 ${crownColors[rank]}`} />
@@ -142,41 +129,12 @@ function PodiumCard({ player, rank, height }) {
 }
 
 export default function Leaderboard() {
-  const { data: profiles = [] } = useQuery({
-    queryKey: ["profiles"],
-    queryFn: () => appClient.entities.PlayerProfile.list(),
+  const { data: leaderboardResponse, isLoading } = useQuery({
+    queryKey: ["leaderboard"],
+    queryFn: () => appClient.functions.invoke("getLeaderboard"),
+    staleTime: 30_000,
   });
-
-  const { data: users = [] } = useQuery({
-    queryKey: ["users"],
-    queryFn: () => appClient.entities.User.list(),
-  });
-
-  const { data: allCards = [] } = useQuery({
-    queryKey: ["allCards"],
-    queryFn: () => appClient.entities.Card.list(),
-  });
-
-  const leaderboardData = useMemo(() => {
-    return profiles.map(profile => {
-      const user = users.find(u => u.id === profile.created_by_id);
-      const playerCards = allCards.filter(c => c.created_by_id === profile.created_by_id);
-      const score = calculatePlayerScore(profile, playerCards);
-      
-      return {
-        id: profile.id,
-        userId: profile.created_by_id,
-        name: profile.display_name || user?.full_name || "Joueur",
-        avatarUrl: profile.avatar_url || user?.avatar_url || null,
-        level: profile.level || 1,
-        collectionSize: playerCards.length,
-        collectionPower: playerCards.reduce((sum, c) => sum + (c.power || 0), 0),
-        score: score,
-      };
-    })
-    .sort((a, b) => b.score - a.score)
-    .map((player, index) => ({ ...player, rank: index + 1 }));
-  }, [profiles, users, allCards]);
+  const leaderboardData = leaderboardResponse?.data || [];
 
   const top3 = leaderboardData.slice(0, 3);
   const rest = leaderboardData.slice(3);
@@ -200,7 +158,7 @@ export default function Leaderboard() {
         {top3.length > 0 && (
           <div className="mb-8">
             <h2 className="font-heading font-bold text-sm uppercase mb-4 text-center">🏆 Podium</h2>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4">
               {top3[1] && <PodiumCard player={top3[1]} rank={2} height="h-32" />}
               {top3[0] && <PodiumCard player={top3[0]} rank={1} height="h-40" />}
               {top3[2] && <PodiumCard player={top3[2]} rank={3} height="h-28" />}
@@ -215,7 +173,8 @@ export default function Leaderboard() {
           ))}
         </div>
 
-        {leaderboardData.length === 0 && (
+        {isLoading && <p className="py-12 text-center text-muted-foreground">Calcul du classement...</p>}
+        {!isLoading && leaderboardData.length === 0 && (
           <div className="text-center py-12">
             <Trophy className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">Aucun joueur pour le moment</p>

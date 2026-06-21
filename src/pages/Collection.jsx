@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { appClient } from "@/api/appClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Search, Star, Grid, List, Layers, Filter, SlidersHorizontal, TrendingUp } from "lucide-react";
+import { Search, Star, Grid, List, Layers, Filter, SlidersHorizontal, TrendingUp, RotateCcw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -18,9 +18,9 @@ export default function Collection() {
   const [search, setSearch] = useState("");
   const [rarityFilter, setRarityFilter] = useState("all");
   const [animeFilter, setAnimeFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("collection_rarity");
+  const [sortBy, setSortBy] = useState(() => localStorage.getItem("collection_sort") || "collection_rarity");
   const [selectedCard, setSelectedCard] = useState(null);
-  const [viewMode, setViewMode] = useState("grid");
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem("collection_view") || "grid");
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const queryClient = useQueryClient();
 
@@ -49,6 +49,17 @@ export default function Collection() {
     queryFn: () => appClient.entities.PlayerProfile.list(),
   });
   const profile = profiles[0];
+
+  useEffect(() => localStorage.setItem("collection_sort", sortBy), [sortBy]);
+  useEffect(() => localStorage.setItem("collection_view", viewMode), [viewMode]);
+
+  const hasActiveFilters = Boolean(search || rarityFilter !== "all" || animeFilter !== "all" || showFavoritesOnly);
+  const resetFilters = () => {
+    setSearch("");
+    setRarityFilter("all");
+    setAnimeFilter("all");
+    setShowFavoritesOnly(false);
+  };
 
   const updateCardMutation = useMutation({
     mutationFn: ({ id, data }) => appClient.entities.Card.update(id, data),
@@ -196,6 +207,11 @@ export default function Collection() {
             
             {/* Filtres */}
             <div className="flex flex-wrap gap-3">
+              {hasActiveFilters && (
+                <Button variant="ghost" size="sm" className="h-11 px-3 text-xs" onClick={resetFilters}>
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Réinitialiser
+                </Button>
+              )}
               <Select value={rarityFilter} onValueChange={setRarityFilter}>
                 <SelectTrigger className="w-full sm:w-40 bg-secondary/30 border-border/50 h-11">
                   <Filter className="w-3.5 h-3.5 mr-2 text-muted-foreground" />

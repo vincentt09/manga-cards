@@ -230,6 +230,17 @@ export default function Fusion() {
     setSelectedCards(prev => prev.filter(c => c.id !== card.id));
   };
 
+  const handleAutoSelect = () => {
+    if (!recipe) return;
+    const eligible = cards
+      .filter((card) => card.rarity === selectedRarity
+        && !card.is_favorite
+        && Number(card.duplicates || 1) >= recipe.copiesEach
+        && Number(card.level || 1) >= recipe.minLevel)
+      .sort((a, b) => Number(a.power || 0) - Number(b.power || 0));
+    setSelectedCards(eligible.slice(0, recipe.count));
+  };
+
   const canFuse = recipe
     && selectedCards.length === recipe.count
     && profile
@@ -323,9 +334,13 @@ export default function Fusion() {
         {/* Card slots */}
         {recipe && (
           <div className="rounded-2xl border border-border bg-card/60 p-4 mb-4">
-            <p className="text-xs font-bold text-muted-foreground uppercase mb-3">
-              Cartes sélectionnées ({selectedCards.length}/{recipe.count})
-            </p>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-xs font-bold text-muted-foreground uppercase">Cartes sélectionnées ({selectedCards.length}/{recipe.count})</p>
+              <Button type="button" size="sm" variant="outline" className="h-7 text-[10px]" onClick={handleAutoSelect}>
+                <Sparkles className="mr-1 h-3 w-3" />Sélection sûre
+              </Button>
+            </div>
+            <p className="mb-3 text-[10px] text-muted-foreground">La sélection automatique protège les favoris et choisit les cartes les moins puissantes.</p>
             <div className="flex gap-2 flex-wrap">
               {selectedCards.map(c => (
                 <CardSlot key={c.id} card={c} onRemove={() => handleRemoveCard(c)} imageOverrides={imageOverrides} />

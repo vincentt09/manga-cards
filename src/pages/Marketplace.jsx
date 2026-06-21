@@ -10,7 +10,6 @@ import { useToast } from "@/components/ui/use-toast";
 import Navbar from "@/components/game/Navbar";
 import CurrencyBar from "@/components/game/CurrencyBar";
 import { RARITY_CONFIG, RARITY_ORDER } from "@/lib/gameData";
-import { trackCardSold } from "@/lib/questTracker";
 import { logTransaction } from "@/lib/transactionLogger";
 import { useAuth } from "@/lib/AuthContext";
 import CardListing from "@/components/marketplace/CardListing";
@@ -84,24 +83,20 @@ export default function Marketplace() {
       return;
     }
     setBuyingId(listing.id);
-
-    await appClient.entities.Card.create({
-      name: listing.card_name, anime: listing.card_anime, rarity: listing.card_rarity,
-      variant: listing.card_variant, power: listing.card_power, attack: listing.card_attack,
-      defense: listing.card_defense, speed: listing.card_speed, level: listing.card_level || 1,
-      image_url: listing.card_image_url, duplicates: 1, is_favorite: false,
-    });
-
-    await appClient.entities.PlayerProfile.update(profile.id, { coins: (profile.coins || 0) - listing.price });
-    await appClient.entities.MarketListing.update(listing.id, { status: "sold", buyer_id: user?.id });
-
-    queryClient.invalidateQueries({ queryKey: ["card-listings"] });
-    queryClient.invalidateQueries({ queryKey: ["profile"] });
-    queryClient.invalidateQueries({ queryKey: ["cards"] });
-    setBuyingId(null);
-
-    toast({ title: `✅ ${listing.card_name} achetée !`, description: `−${listing.price.toLocaleString()} pièces` });
-    logTransaction({ type: "buy", description: `Achat : ${listing.card_name}`, amount: -listing.price, card_name: listing.card_name, card_rarity: listing.card_rarity });
+    try {
+      const response = await appClient.functions.invoke("buyMarketListing", { listing_id: listing.id, kind: "card" });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["card-listings"] }),
+        queryClient.invalidateQueries({ queryKey: ["profile"] }),
+        queryClient.invalidateQueries({ queryKey: ["cards"] }),
+        queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+      ]);
+      toast({ title: `✅ ${listing.card_name} achetée !`, description: `−${listing.price.toLocaleString()} pièces · taxe marché ${response.data.tax.toLocaleString()}` });
+    } catch (error) {
+      toast({ title: "Achat impossible", description: error.message, variant: "destructive" });
+    } finally {
+      setBuyingId(null);
+    }
   };
 
   const handleBuyFrame = async (listing) => {
@@ -112,46 +107,38 @@ export default function Marketplace() {
     }
     setBuyingId(listing.id);
 
-    await appClient.entities.PlayerFrame.create({
-      frame_id: listing.frame_id,
-      is_unlocked: true,
-      card_id: null,
-      unlocked_date: new Date().toISOString(),
-    });
-
-    await appClient.entities.PlayerProfile.update(profile.id, { coins: (profile.coins || 0) - listing.price });
-    await appClient.entities.FrameListing.update(listing.id, { status: "sold", buyer_id: user?.id });
-
-    queryClient.invalidateQueries({ queryKey: ["frame-listings"] });
-    queryClient.invalidateQueries({ queryKey: ["profile"] });
-    setBuyingId(null);
-
-    toast({ title: `✅ ${listing.frame_name} acheté !`, description: `−${listing.price.toLocaleString()} pièces` });
+    try {
+      const response = await appClient.functions.invoke("buyMarketListing", { listing_id: listing.id, kind: "frame" });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["frame-listings"] }),
+        queryClient.invalidateQueries({ queryKey: ["profile"] }),
+        queryClient.invalidateQueries({ queryKey: ["myFrames"] }),
+      ]);
+      toast({ title: `✅ ${listing.frame_name} acheté !`, description: `−${listing.price.toLocaleString()} pièces · taxe marché ${response.data.tax.toLocaleString()}` });
+    } catch (error) {
+      toast({ title: "Achat impossible", description: error.message, variant: "destructive" });
+    } finally {
+      setBuyingId(null);
+    }
   };
 
   const handleCancelCard = async (listing) => {
-    await appClient.entities.Card.create({
-      name: listing.card_name, anime: listing.card_anime, rarity: listing.card_rarity,
-      variant: listing.card_variant, power: listing.card_power, attack: listing.card_attack,
-      defense: listing.card_defense, speed: listing.card_speed, level: listing.card_level || 1,
-      image_url: listing.card_image_url, duplicates: 1, is_favorite: false,
-    });
-    await appClient.entities.MarketListing.update(listing.id, { status: "cancelled" });
+    await appClient.functions.invoke("cancelMarketListing", { listing_id: listing.id, kind: "card" });
     queryClient.invalidateQueries({ queryKey: ["card-listings"] });
     queryClient.invalidateQueries({ queryKey: ["cards"] });
     toast({ title: "Annulé", description: `${listing.card_name} rendue à ta collection.` });
   };
 
   const handleCancelFrame = async (listing) => {
-    await appClient.entities.PlayerFrame.create({ frame_id: listing.frame_id, is_unlocked: true, card_id: null, unlocked_date: new Date().toISOString() });
-    await appClient.entities.FrameListing.update(listing.id, { status: "cancelled" });
+    await appClient.functions.invoke("cancelMarketListing", { listing_id: listing.id, kind: "frame" });
     queryClient.invalidateQueries({ queryKey: ["frame-listings"] });
     toast({ title: "Annulé", description: `${listing.frame_name} rendu à ton inventaire.` });
   };
 
   const handleSellCard = async (card, price) => {
     setIsListing(true);
-    await appClient.entities.Card.delete(card.id);
+    if (Number(card.duplicates || 1) > 1) await appClient.entities.Card.update(card.id, { duplicates: Number(card.duplicates) - 1 });
+    else await appClient.entities.Card.delete(card.id);
     await appClient.entities.MarketListing.create({
       card_id: card.id, seller_id: user?.id, seller_name: user?.full_name || "Joueur",
       card_name: card.name, card_anime: card.anime, card_rarity: card.rarity,
@@ -163,7 +150,6 @@ export default function Marketplace() {
     queryClient.invalidateQueries({ queryKey: ["cards"] });
     setIsListing(false);
     setShowSellModal(false);
-    trackCardSold();
     logTransaction({ type: "sell", description: `Vente : ${card.name}`, amount: price, card_name: card.name, card_rarity: card.rarity });
     toast({ title: `🏷️ ${card.name} en vente !`, description: `Prix : ${price.toLocaleString()} pièces` });
   };

@@ -40,7 +40,8 @@ export default function Auctions() {
 
   const { data: auctions = [] } = useQuery({
     queryKey: ["auctions"],
-    queryFn: () => appClient.entities.Auction.list("-ends_at"),
+    queryFn: async () => (await appClient.functions.invoke("getAuctions")).data,
+    refetchInterval: 15_000,
   });
 
   const { data: cards = [] } = useQuery({
@@ -60,20 +61,23 @@ export default function Auctions() {
   const economyStatsData = economyStats[0];
 
   const createAuctionMutation = useMutation({
-    mutationFn: (data) => appClient.entities.Auction.create(data),
+    mutationFn: (data) => appClient.functions.invoke("createAuction", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["auctions"] });
       queryClient.invalidateQueries({ queryKey: ["cards"] });
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
       toast.success("Enchère créée avec succès");
     },
+    onError: (error) => toast.error(error.message),
   });
 
   const placeBidMutation = useMutation({
-    mutationFn: ({ auctionId, data }) => appClient.entities.Auction.update(auctionId, data),
+    mutationFn: ({ auctionId, amount }) => appClient.functions.invoke("placeAuctionBid", { auction_id: auctionId, amount }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["auctions"] });
       queryClient.invalidateQueries({ queryKey: ["profile"] });
     },
+    onError: (error) => toast.error(error.message),
   });
 
   const handleBid = async (auction, amount) => {
@@ -82,35 +86,12 @@ export default function Auctions() {
       return;
     }
 
-    // Refund previous bidder if exists
-    if (auction.highest_bidder_id && auction.highest_bidder_id !== profile.created_by_id) {
-      const previousBidderProfiles = await appClient.entities.PlayerProfile.filter({
-        created_by_id: auction.highest_bidder_id
-      });
-      if (previousBidderProfiles.length > 0) {
-        await appClient.entities.PlayerProfile.update(previousBidderProfiles[0].id, {
-          coins: (previousBidderProfiles[0].coins || 0) + auction.current_bid,
-        });
-      }
-    }
-
-    placeBidMutation.mutate({
-      auctionId: auction.id,
-      data: {
-        current_bid: amount,
-        highest_bidder_id: profile.created_by_id,
-        highest_bidder_name: profile.full_name || "Joueur",
-      },
-    });
-
-    // Deduct coins from current bidder
-    appClient.entities.PlayerProfile.update(profile.id, {
-      coins: profile.coins - amount,
-    });
-
-    toast.success(`Enchère de ${amount.toLocaleString()} 🪙 placée !`);
-    setShowBidModal(false);
-    setSelectedAuction(null);
+    try {
+      await placeBidMutation.mutateAsync({ auctionId: auction.id, amount });
+      toast.success(`Enchère de ${amount.toLocaleString()} 🪙 placée !`);
+      setShowBidModal(false);
+      setSelectedAuction(null);
+    } catch { /* le message est affiché par la mutation */ }
   };
 
   const filteredAuctions = useMemo(() => {

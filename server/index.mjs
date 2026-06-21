@@ -90,6 +90,54 @@ const createQuestRow = (item) => {
     expires_at: item.expires_at,
   };
 };
+const advanceQuestProgress = (entities, userId, questIds, increment = 1) => {
+  const ids = new Set(questIds);
+  const now = Date.now();
+  for (const quest of (entities.Quest || []).filter((item) =>
+    item.created_by_id === userId
+    && ids.has(item.quest_id)
+    && !item.claimed
+    && !item.completed
+    && (!item.expires_at || new Date(item.expires_at).getTime() > now)
+  )) {
+    quest.progress = Math.min(Number(quest.target || 1), Number(quest.progress || 0) + Number(increment || 0));
+    quest.completed = quest.progress >= Number(quest.target || 1);
+    quest.updated_date = new Date(now).toISOString();
+  }
+};
+const settleExpiredAuctions = (db) => {
+  const entities = db.entities;
+  const now = Date.now();
+  for (const auction of (entities.Auction || []).filter((item) => item.status === "active" && new Date(item.ends_at).getTime() <= now)) {
+    const stamp = new Date(now).toISOString();
+    const ownerId = auction.highest_bidder_id || auction.seller_id;
+    const owner = db.users.find((candidate) => candidate.id === ownerId);
+    entities.Card ||= [];
+    const existingCard = entities.Card.find((card) => card.created_by_id === ownerId && card.name === auction.card_name && card.rarity === auction.card_rarity);
+    if (existingCard) {
+      existingCard.duplicates = Number(existingCard.duplicates || 1) + 1;
+      existingCard.updated_date = stamp;
+    } else {
+      entities.Card.push({
+        id: id(), name: auction.card_name, anime: auction.card_anime, rarity: auction.card_rarity,
+        power: auction.card_power, attack: auction.card_attack, defense: auction.card_defense, speed: auction.card_speed,
+        level: auction.card_level || 1, image_url: auction.card_image_url || null, duplicates: 1, is_favorite: false,
+        created_by_id: ownerId, created_by: owner?.email, created_date: stamp, updated_date: stamp,
+      });
+    }
+    if (auction.highest_bidder_id) {
+      const sellerProfile = (entities.PlayerProfile || []).find((item) => item.created_by_id === auction.seller_id);
+      const fee = Math.max(1, Math.floor(Number(auction.current_bid || 0) * 0.10));
+      if (sellerProfile) {
+        sellerProfile.coins = Number(sellerProfile.coins || 0) + Number(auction.current_bid || 0) - fee;
+        sellerProfile.updated_date = stamp;
+      }
+      Object.assign(auction, { status: "sold", final_fee: fee, sold_at: stamp, updated_date: stamp });
+    } else {
+      Object.assign(auction, { status: "expired", updated_date: stamp });
+    }
+  }
+};
 const weekKey = (date = new Date()) => {
   const value = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = value.getUTCDay() || 7;
@@ -518,7 +566,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   db.entities[name] ||= []; const rows = db.entities[name];
   const privateEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "UserCosmetic", "ProfileCustomization"]);
   const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats"]);
-  const collaborativeEntities = new Set(["MarketListing", "FrameListing", "Auction"]);
+  const collaborativeEntities = new Set();
   const canAccess = (row) => user.role === "admin" || !privateEntities.has(name) || row.created_by_id === user.id;
   const canWrite = (row) => user.role === "admin" || collaborativeEntities.has(name) || row.created_by_id === user.id;
   const visibleRows = rows.filter(canAccess);
@@ -547,6 +595,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   }
   if (req.method === "POST" && !action) {
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Les talents doivent être débloqués depuis l'arbre de talents." });
+    if (name === "Auction" && user.role !== "admin") return json(res, 403, { message: "Utilise la création d’enchère sécurisée." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
     if (name === "Quest" && user.role !== "admin") {
@@ -554,7 +603,10 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
       if (!input) return json(res, 400, { message: "Quête invalide." });
     }
     if (name === "PlayerFrame" && user.role !== "admin" && (db.entities.CardFrame || []).some((frame) => frame.id === input.frame_id && ["endgame", "gift", "event"].includes(frame.source_type))) return json(res, 403, { message: "Ce cadre doit être obtenu par sa méthode officielle." });
-    const created = { ...input, id: id(), created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString(), updated_date: new Date().toISOString() }; rows.push(created); await writeDb(db); return json(res, 201, created);
+    const created = { ...input, id: id(), created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString(), updated_date: new Date().toISOString() };
+    rows.push(created);
+    if (name === "MarketListing" && created.status === "active") advanceQuestProgress(db.entities, user.id, ["sell_1_card", "w_sell_3"]);
+    await writeDb(db); return json(res, 201, created);
   }
   const item = rows.find((row) => row.id === action); if (!item || !canAccess(item)) return json(res, 404, { message: `${name} introuvable.` });
   if (req.method === "GET") return json(res, 200, present(item));
@@ -562,6 +614,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     if (!canWrite(item)) return json(res, 403, { message: "Modification interdite." });
     const input = await body(req); delete input.id; delete input.created_by_id; delete input.created_by; delete input.created_date;
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Modification de talent interdite." });
+    if (name === "Auction" && user.role !== "admin") return json(res, 403, { message: "Utilise le système d’enchère sécurisé." });
     if (name === "PlayerProfile" && user.role !== "admin") { delete input.talent_points; delete input.claimed_rewards; }
     if (name === "Quest" && user.role !== "admin") {
       delete input.claimed;
@@ -569,7 +622,10 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
       delete input.reward_coins;
       delete input.reward_gems;
     }
-    Object.assign(item, input, { id: item.id, updated_date: new Date().toISOString() }); await writeDb(db); return json(res, 200, present(item));
+    const becameFavorite = name === "Card" && !item.is_favorite && input.is_favorite === true;
+    Object.assign(item, input, { id: item.id, updated_date: new Date().toISOString() });
+    if (becameFavorite) advanceQuestProgress(db.entities, user.id, ["fav_1_card"]);
+    await writeDb(db); return json(res, 200, present(item));
   }
   if (req.method === "DELETE") {
     if (!canWrite(item) || (name === "PlayerTalent" && user.role !== "admin")) return json(res, 403, { message: "Suppression interdite." });
@@ -585,7 +641,84 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "setCardImage") {
+  if (name === "getAuctions") {
+    settleExpiredAuctions(db);
+    result = (entities.Auction || []).sort((a, b) => new Date(a.ends_at) - new Date(b.ends_at));
+  } else if (name === "createAuction") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const card = (entities.Card || []).find((item) => item.id === input.card_id && item.created_by_id === user.id);
+    if (!card) return json(res, 404, { message: "Carte introuvable dans ta collection." });
+    const startingPrice = Math.max(1, Math.floor(Number(input.starting_price || 0)));
+    const buyoutPrice = input.buyout_price ? Math.floor(Number(input.buyout_price)) : null;
+    if (buyoutPrice && buyoutPrice <= startingPrice) return json(res, 400, { message: "L’achat immédiat doit dépasser le prix de départ." });
+    const durationHours = Math.max(1, Math.min(72, Number(input.duration_hours || 24)));
+    const listingFee = Math.max(1, Math.floor(startingPrice * 0.05));
+    if (Number(profile.coins || 0) < listingFee) return json(res, 400, { message: "Pièces insuffisantes pour les frais de mise." });
+    const now = new Date();
+    const auction = {
+      id: id(), card_id: card.id, card_name: card.name, card_anime: card.anime, card_rarity: card.rarity,
+      card_image_url: card.image_url, card_power: card.power, card_attack: card.attack, card_defense: card.defense,
+      card_speed: card.speed, card_level: card.level || 1, seller_id: user.id,
+      seller_name: profile.display_name || user.full_name || "Joueur", starting_price: startingPrice,
+      current_bid: startingPrice, highest_bidder_id: null, highest_bidder_name: null, status: "active",
+      ends_at: new Date(now.getTime() + durationHours * 3_600_000).toISOString(), buyout_price: buyoutPrice,
+      listing_fee: listingFee, created_by_id: user.id, created_by: user.email, created_date: now.toISOString(), updated_date: now.toISOString(),
+    };
+    if (Number(card.duplicates || 1) > 1) {
+      card.duplicates = Number(card.duplicates) - 1;
+      card.updated_date = now.toISOString();
+    } else {
+      entities.Card = entities.Card.filter((item) => item.id !== card.id);
+    }
+    entities.Auction ||= [];
+    entities.Auction.push(auction);
+    profile.coins = Number(profile.coins || 0) - listingFee;
+    profile.updated_date = now.toISOString();
+    result = auction;
+  } else if (name === "placeAuctionBid") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    settleExpiredAuctions(db);
+    const auction = (entities.Auction || []).find((item) => item.id === input.auction_id && item.status === "active");
+    if (!auction) return json(res, 409, { message: "Cette enchère est terminée." });
+    if (auction.seller_id === user.id) return json(res, 400, { message: "Tu ne peux pas enchérir sur ta propre carte." });
+    const amount = Math.floor(Number(input.amount || 0));
+    const minimum = Number(auction.current_bid || 0) + Math.max(1, Math.ceil(Number(auction.current_bid || 0) * 0.10));
+    if (amount < minimum) return json(res, 409, { message: `La nouvelle mise minimale est ${minimum.toLocaleString("fr-FR")} pièces.` });
+    const isSameBidder = auction.highest_bidder_id === user.id;
+    const charge = isSameBidder ? amount - Number(auction.current_bid || 0) : amount;
+    if (Number(profile.coins || 0) < charge) return json(res, 400, { message: "Pièces insuffisantes." });
+    if (auction.highest_bidder_id && !isSameBidder) {
+      const previous = (entities.PlayerProfile || []).find((item) => item.created_by_id === auction.highest_bidder_id);
+      if (previous) previous.coins = Number(previous.coins || 0) + Number(auction.current_bid || 0);
+    }
+    profile.coins = Number(profile.coins || 0) - charge;
+    profile.updated_date = new Date().toISOString();
+    Object.assign(auction, { current_bid: amount, highest_bidder_id: user.id, highest_bidder_name: profile.display_name || user.full_name || "Joueur", updated_date: new Date().toISOString() });
+    result = auction;
+  } else if (name === "getLeaderboard") {
+    const profiles = entities.PlayerProfile || [];
+    const cards = entities.Card || [];
+    const rarityScore = { normale: 1, legendaire: 25, "secrète": 50, manga_god: 100 };
+    result = profiles.map((playerProfile) => {
+      const owner = db.users.find((candidate) => candidate.id === playerProfile.created_by_id);
+      const playerCards = cards.filter((card) => card.created_by_id === playerProfile.created_by_id);
+      const level = getLevelFromXp(Number(playerProfile.xp || 0)).level;
+      const collectionPower = playerCards.reduce((sum, card) => sum + Number(card.power || 0), 0);
+      const rarityBonus = playerCards.reduce((sum, card) => sum + (rarityScore[card.rarity] || 1), 0);
+      return {
+        id: playerProfile.id,
+        userId: playerProfile.created_by_id,
+        name: playerProfile.display_name || owner?.full_name || "Joueur",
+        avatarUrl: playerProfile.avatar_url || owner?.avatar_url || null,
+        titleId: playerProfile.equipped_title_id || "rookie",
+        level,
+        collectionSize: playerCards.length,
+        collectionPower,
+        score: level * 100 + collectionPower + rarityBonus,
+        isCurrentUser: playerProfile.created_by_id === user.id,
+      };
+    }).sort((a, b) => b.score - a.score || b.collectionPower - a.collectionPower).map((player, index) => ({ ...player, rank: index + 1 }));
+  } else if (name === "setCardImage") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const definition = (entities.CardDefinition || []).find((item) => item.id === input.card_id);
     if (!definition) return json(res, 404, { message: "Définition de carte introuvable." });
@@ -905,6 +1038,13 @@ async function runFunction(req, res, name, db, user) {
     entities.Transaction ||= [];
     entities.Transaction.push({ id: id(), type: "booster", description: `Ouverture : ${booster.name}`, amount: booster.currency === "coins" ? -price : 0,
       gems_amount: booster.currency === "gems" ? -price : 0, created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString() });
+    advanceQuestProgress(entities, user.id, ["open_1_booster", "open_3_boosters", "w_open_10"]);
+    const newCardCount = dropped.filter((card) => !card.isDuplicate).length;
+    if (newCardCount > 0) advanceQuestProgress(entities, user.id, ["collect_5_cards", "w_collect_20"], newCardCount);
+    if (dropped.some((card) => card.rarity !== "normale")) advanceQuestProgress(entities, user.id, ["get_rare"]);
+    if (dropped.some((card) => ["secrète", "manga_god"].includes(card.rarity))) advanceQuestProgress(entities, user.id, ["get_ultra", "w_get_epic"]);
+    if (dropped.some((card) => card.rarity === "manga_god")) advanceQuestProgress(entities, user.id, ["w_get_legendary"]);
+    if (booster.currency === "coins" && price > 0) advanceQuestProgress(entities, user.id, ["spend_coins"], price);
     let frameDrop = null;
     if (activeEvent) {
       entities.PlayerFrame ||= [];
@@ -922,7 +1062,11 @@ async function runFunction(req, res, name, db, user) {
     }
     const rare = dropped.filter((card) => card.rarity !== "normale");
     const messages = rare.length
-      ? rare.map((card) => ({ type: card.rarity, title: card.rarity === "manga_god" ? "MANGA GOD !" : card.rarity === "secrète" ? "CARTE SECRETE !" : "CARTE LEGENDAIRE !", description: `${card.name} rejoint ta collection.` }))
+      ? rare.map((card) => ({
+        type: card.rarity,
+        title: card.rarity === "manga_god" ? "MANGA GOD !" : card.rarity === "secrète" ? "CARTE SECRETE !" : "CARTE LEGENDAIRE !",
+        description: card.isDuplicate ? `${card.name} renforce ta carte existante (×${card.stackCount || 2}).` : `${card.name} rejoint ta collection.`,
+      }))
       : [{ type: "info", title: "Booster ouvert", description: `${dropped.length} cartes obtenues et +${totalCoins} pieces.` }];
     result = { cards: dropped, profile, event: activeEvent ? { id: activeEvent.id, name: activeEvent.name, multiplier: activeEvent.multiplier, rarity: eventRarity } : null,
       drop_rates: Object.fromEntries(Object.entries(rates).map(([key, value]) => [key, Number((value * 100).toFixed(3))])), messages, rewards: { xp: totalXp, coins: totalCoins }, price, talent_bonus_card: talentBonusCard, frame_drop: frameDrop };
@@ -943,6 +1087,71 @@ async function runFunction(req, res, name, db, user) {
     const owned = (entities.PlayerFrame || []).find((item) => item.frame_id === input.frame_id && item.created_by_id === user.id && item.is_unlocked);
     if (!card || !frame || !owned) return json(res, 404, { message: "Carte ou cadre possédé introuvable." });
     card.applied_frame_id = input.frame_id; card.updated_date = new Date().toISOString(); result = { card: resolvedCard(db, card) };
+  } else if (name === "buyMarketListing") {
+    if (!profile) return json(res, 404, { message: "Profil acheteur introuvable." });
+    const kind = input.kind === "frame" ? "frame" : "card";
+    const collectionName = kind === "frame" ? "FrameListing" : "MarketListing";
+    const listing = (entities[collectionName] || []).find((item) => item.id === input.listing_id);
+    if (!listing || listing.status !== "active") return json(res, 409, { message: "Cette annonce n’est plus disponible." });
+    if (listing.seller_id === user.id) return json(res, 400, { message: "Tu ne peux pas acheter ta propre annonce." });
+    const price = Math.max(1, Number(listing.price || 0));
+    if (Number(profile.coins || 0) < price) return json(res, 400, { message: "Pièces insuffisantes." });
+    const sellerProfile = (entities.PlayerProfile || []).find((item) => item.created_by_id === listing.seller_id);
+    if (!sellerProfile) return json(res, 409, { message: "Le profil du vendeur est introuvable." });
+    const tax = Math.max(1, Math.floor(price * 0.05));
+    const sellerReceives = price - tax;
+    const now = new Date().toISOString();
+    profile.coins = Number(profile.coins || 0) - price;
+    sellerProfile.coins = Number(sellerProfile.coins || 0) + sellerReceives;
+    profile.updated_date = now;
+    sellerProfile.updated_date = now;
+    if (kind === "card") {
+      entities.Card ||= [];
+      const existing = entities.Card.find((card) => card.created_by_id === user.id && card.name === listing.card_name && card.rarity === listing.card_rarity);
+      if (existing) {
+        existing.duplicates = Number(existing.duplicates || 1) + 1;
+        existing.updated_date = now;
+      } else {
+        entities.Card.push({
+          id: id(), name: listing.card_name, anime: listing.card_anime, rarity: listing.card_rarity,
+          variant: listing.card_variant, power: listing.card_power, attack: listing.card_attack,
+          defense: listing.card_defense, speed: listing.card_speed, level: listing.card_level || 1,
+          image_url: listing.card_image_url || null, duplicates: 1, is_favorite: false,
+          created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now,
+        });
+      }
+    } else {
+      entities.PlayerFrame ||= [];
+      entities.PlayerFrame.push({ id: id(), frame_id: listing.frame_id, is_unlocked: true, card_id: null, unlocked_date: now, created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now });
+    }
+    Object.assign(listing, { status: "sold", buyer_id: user.id, sold_at: now, market_tax: tax, seller_received: sellerReceives, updated_date: now });
+    entities.Transaction ||= [];
+    entities.Transaction.push(
+      { id: id(), type: "buy", description: `Achat marché : ${kind === "card" ? listing.card_name : listing.frame_name}`, amount: -price, created_by_id: user.id, created_by: user.email, created_date: now },
+      { id: id(), type: "market_sale", description: `Vente marché : ${kind === "card" ? listing.card_name : listing.frame_name}`, amount: sellerReceives, created_by_id: listing.seller_id, created_date: now },
+    );
+    result = { listing, price, tax, seller_receives: sellerReceives };
+  } else if (name === "cancelMarketListing") {
+    const kind = input.kind === "frame" ? "frame" : "card";
+    const collectionName = kind === "frame" ? "FrameListing" : "MarketListing";
+    const listing = (entities[collectionName] || []).find((item) => item.id === input.listing_id && item.seller_id === user.id);
+    if (!listing || listing.status !== "active") return json(res, 409, { message: "Cette annonce ne peut plus être annulée." });
+    const now = new Date().toISOString();
+    if (kind === "card") {
+      entities.Card ||= [];
+      const existing = entities.Card.find((card) => card.created_by_id === user.id && card.name === listing.card_name && card.rarity === listing.card_rarity);
+      if (existing) {
+        existing.duplicates = Number(existing.duplicates || 1) + 1;
+        existing.updated_date = now;
+      } else {
+        entities.Card.push({ id: id(), name: listing.card_name, anime: listing.card_anime, rarity: listing.card_rarity, variant: listing.card_variant, power: listing.card_power, attack: listing.card_attack, defense: listing.card_defense, speed: listing.card_speed, level: listing.card_level || 1, image_url: listing.card_image_url || null, duplicates: 1, is_favorite: false, created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now });
+      }
+    } else {
+      entities.PlayerFrame ||= [];
+      entities.PlayerFrame.push({ id: id(), frame_id: listing.frame_id, is_unlocked: true, card_id: null, unlocked_date: now, created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now });
+    }
+    Object.assign(listing, { status: "cancelled", cancelled_at: now, updated_date: now });
+    result = { listing };
   } else if (name === "purchaseFrame") {
     const frameId = input.frameId || input.frame_id; const frame = (entities.CardFrame || []).find((item) => item.id === frameId && item.is_active !== false);
     if (!frame || !profile) return json(res, 404, { message: "Cadre ou profil introuvable." });

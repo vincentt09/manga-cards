@@ -7,11 +7,11 @@ export const ACHIEVEMENTS = [
   { id: "cards_50",     label: "Grand Collectionneur",desc: "Possède 50 cartes",          icon: Layers,      check: (d) => d.cards >= 50 },
   { id: "cards_100",    label: "Légende Vivante",     desc: "Possède 100 cartes",         icon: Layers,      check: (d) => d.cards >= 100 },
   // Rarities
-  { id: "rare_5",       label: "Chasseur de Rare",    desc: "Possède 5 cartes Rares",     icon: Star,        check: (d) => d.rarityCount.rare >= 5 },
-  { id: "epic_3",       label: "Puissance Épique",    desc: "Possède 3 cartes Épiques",   icon: Zap,         check: (d) => d.rarityCount.epic >= 3 },
-  { id: "legendary_1",  label: "L'Élu",               desc: "1 carte Légendaire",          icon: Crown,       check: (d) => d.rarityCount.legendary >= 1 },
-  { id: "legendary_5",  label: "Gardien des Légendes",desc: "5 cartes Légendaires",        icon: Crown,       check: (d) => d.rarityCount.legendary >= 5 },
-  { id: "secret_1",     label: "Porteur du Secret",   desc: "1 carte Secrète",             icon: BookOpen,    check: (d) => d.rarityCount.secret >= 1 },
+  { id: "rare_5",       label: "Chasseur de Légendes",desc: "Possède 5 Légendaires",       icon: Star,        check: (d) => d.rarityCount.legendaire >= 5 },
+  { id: "epic_3",       label: "Maître des Secrets",  desc: "Possède 3 cartes Secrètes",   icon: Zap,         check: (d) => d.rarityCount["secrète"] >= 3 },
+  { id: "legendary_1",  label: "L'Élu",               desc: "Possède 1 Manga God",          icon: Crown,       check: (d) => d.rarityCount.manga_god >= 1 },
+  { id: "legendary_5",  label: "Gardien des Dieux",   desc: "Possède 5 Manga God",          icon: Crown,       check: (d) => d.rarityCount.manga_god >= 5 },
+  { id: "secret_1",     label: "Collection Parfaite", desc: "Possède chaque rareté",        icon: BookOpen,    check: (d) => ["normale", "legendaire", "secrète", "manga_god"].every((rarity) => d.rarityCount[rarity] >= 1) },
   // Upgrade
   { id: "level5",       label: "Forgeron",            desc: "Niv.5 sur une carte",         icon: Trophy,      check: (d) => d.maxLevel >= 5 },
   { id: "level10",      label: "Maître Forgeron",     desc: "Niv.10 sur une carte",        icon: Trophy,      check: (d) => d.maxLevel >= 10 },
@@ -42,8 +42,8 @@ export const PROFILE_TITLES = [
   })),
 ];
 
-export function getAchievementData({ cards, profile, playerLevel }) {
-  const rarityCount = { common: 0, rare: 0, ultra_rare: 0, epic: 0, legendary: 0, secret: 0 };
+export function getAchievementData({ cards, profile, playerLevel, transactions = [] }) {
+  const rarityCount = { normale: 0, legendaire: 0, "secrète": 0, manga_god: 0 };
   cards.forEach(c => { if (rarityCount[c.rarity] !== undefined) rarityCount[c.rarity]++; });
   const maxLevel = cards.reduce((max, c) => Math.max(max, c.level || 1), 0);
   const favorites = cards.filter(c => c.is_favorite).length;
@@ -53,7 +53,7 @@ export function getAchievementData({ cards, profile, playerLevel }) {
     rarityCount,
     maxLevel,
     boostersOpened: profile?.boosters_opened || 0,
-    sold: 0, // tracked via transactions
+    sold: transactions.filter((transaction) => transaction.type === "sell").length,
     playerLevel: playerLevel || 1,
     gems: profile?.gems || 0,
     favorites,

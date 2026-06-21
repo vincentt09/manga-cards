@@ -10,12 +10,8 @@ import CurrencyBar from "@/components/game/CurrencyBar";
 import ImmersiveCardReveal from "@/components/game/ImmersiveCardReveal";
 import BoosterPreviewModal from "@/components/boosters/BoosterPreviewModal";
 import {
-  BOOSTER_TYPES, CARD_POOL, openBooster,
-  getXpReward, getCoinReward,
-  getLevelFromXp
+  BOOSTER_TYPES, CARD_POOL, getLevelFromXp
 } from "@/lib/gameData";
-import { trackBoosterOpened, trackCoinsSpent } from "@/lib/questTracker";
-import { logTransaction } from "@/lib/transactionLogger";
 
 function getCoverImages(booster, imageOverrides = [], catalog = CARD_POOL) {
   const chars = catalog.filter((card) => {
@@ -225,11 +221,6 @@ export default function Boosters() {
     queryFn: () => appClient.entities.PlayerTalent.list(),
   });
 
-  const { data: existingCards = [] } = useQuery({
-    queryKey: ["cards"],
-    queryFn: () => appClient.entities.Card.list("-created_date", 200),
-  });
-
   const { data: imageOverrides = [] } = useQuery({
     queryKey: ["cardImageOverrides"],
     queryFn: () => appClient.entities.CardImageOverride.list(),
@@ -356,9 +347,7 @@ export default function Boosters() {
 
     // Le tirage et les mises a jour sont atomiques cote serveur : le navigateur
     // ne peut plus modifier les taux, le solde ou les cartes obtenues.
-    const secureServerOpening = true;
-    if (secureServerOpening) {
-      try {
+    try {
         const response = await appClient.functions.invoke("openBooster", { booster_id: booster.id });
         const result = response.data;
         if (result.event) {
@@ -383,136 +372,12 @@ export default function Boosters() {
         ]);
         setCurrentBooster(booster);
         setRevealCards(result.cards);
-      } catch (error) {
-        toast({ title: "Ouverture impossible", description: error.message, variant: "destructive" });
-      } finally {
-        setIsOpening(false);
-        setOpeningBoosterId(null);
-      }
-      return;
+    } catch (error) {
+      toast({ title: "Ouverture impossible", description: error.message, variant: "destructive" });
+    } finally {
+      setIsOpening(false);
+      setOpeningBoosterId(null);
     }
-
-    const pity = profile.pity_counter || 0;
-    const newCards = openBooster(booster.id);
-
-    let totalXp = 0;
-    let totalCoins = 0;
-    let gotLegendaryOrBetter = false;
-    const cardUpdates = [];
-    
-    // Frame drop chance (very rare: 0.5% for premium, 0.2% for regular boosters)
-    const frameDropChance = booster.anime === null ? 0.005 : 0.002;
-    const rolledFrame = Math.random() < frameDropChance;
-
-    for (const card of newCards) {
-      const existing = existingCards.find(c => c.name === card.name);
-      if (existing) {
-        // Duplicate: auto-boost stats
-        cardUpdates.push(appClient.entities.Card.update(existing.id, {
-          duplicates: (existing.duplicates || 1) + 1,
-        }));
-        card.isDuplicate = true;
-        card.stackCount = (existing.duplicates || 1) + 1;
-      } else {
-        // Ne PAS sauvegarder d'image par défaut - l'admin devra l'uploader
-        cardUpdates.push(appClient.entities.Card.create({
-          name: card.name, anime: card.anime, rarity: card.rarity,
-          power: card.power, attack: card.attack, defense: card.defense, speed: card.speed,
-          image_url: null,
-          level: 1, duplicates: 1, is_favorite: false,
-        }));
-      }
-      totalXp += getXpReward(card.rarity);
-      totalCoins += getCoinReward(card.rarity);
-      if (card.rarity === "legendary" || card.rarity === "secret") gotLegendaryOrBetter = true;
-    }
-
-    await Promise.all(cardUpdates);
-
-    // Drop frame if rolled
-    if (rolledFrame) {
-      // Get random frame from shop (weighted by rarity)
-      const allFrames = await appClient.entities.CardFrame.list();
-      const shopFrames = allFrames.filter(f => f.source_type === "shop");
-      if (shopFrames.length > 0) {
-        // Weight by rarity (common more likely)
-        const weights = { common: 100, rare: 50, epic: 20, legendary: 5, secret: 1 };
-        const weightedPool = [];
-        shopFrames.forEach(f => {
-          const w = weights[f.rarity] || 50;
-          for (let i = 0; i < w; i++) weightedPool.push(f);
-        });
-        const droppedFrame = weightedPool[Math.floor(Math.random() * weightedPool.length)];
-        if (droppedFrame) {
-          await appClient.entities.PlayerFrame.create({
-            frame_id: droppedFrame.id,
-            is_unlocked: true,
-            card_id: null,
-            unlocked_date: new Date().toISOString(),
-          });
-          toast({
-            title: "🎁 CADRE RARE OBTENU !",
-            description: `${droppedFrame.name} — Drop ultra rare !`,
-            duration: 5000,
-          });
-        }
-      }
-    }
-
-    // Notification améliorée pour les drops rares
-    const secretCards = newCards.filter(c => c.rarity === "secrète" || c.rarity === "manga_god");
-    if (secretCards.length > 0) {
-      secretCards.forEach(card => {
-        toast({
-          title: `🔥 ${card.rarity === "manga_god" ? "MANGA GOD" : "SECRÈTE"} !`,
-          description: `${card.name} — Chance incroyable !`,
-          duration: 6000,
-        });
-      });
-    }
-
-    const price = getBoosterCurrentPrice(booster);
-    const newCoins = booster.currency === "coins"
-      ? (profile.coins || 0) - price + totalCoins
-      : (profile.coins || 0) + totalCoins;
-    const newGems = booster.currency === "gems"
-      ? (profile.gems || 0) - price
-      : (profile.gems || 0);
-
-    const newBoostersCount = { ...boostersCount, [booster.id]: (boostersCount[booster.id] || 0) + 1 };
-    const newPity = gotLegendaryOrBetter ? 0 : pity + newCards.length;
-
-    await appClient.entities.PlayerProfile.update(profile.id, {
-      coins: newCoins,
-      gems: newGems,
-      xp: (profile.xp || 0) + totalXp,
-      boosters_opened: (profile.boosters_opened || 0) + 1,
-      total_cards: (profile.total_cards || 0) + newCards.length,
-      boosters_count: newBoostersCount,
-      pity_counter: newPity,
-    });
-
-    queryClient.invalidateQueries({ queryKey: ["profile"] });
-    queryClient.invalidateQueries({ queryKey: ["cards"] });
-    queryClient.invalidateQueries({ queryKey: ["quests"] });
-    setCurrentBooster(booster);
-    setRevealCards(newCards);
-    setIsOpening(false);
-    setOpeningBoosterId(null);
-
-    // Track quest progress
-    trackBoosterOpened(newCards);
-    if (booster.currency === "coins") trackCoinsSpent(price);
-
-    // Log transaction
-    const cost = booster.currency === "coins" ? -price : 0;
-    const gemsCost = booster.currency === "gems" ? -price : 0;
-    logTransaction({
-      type: "booster",
-      description: `Ouverture : ${booster.name}`,
-      amount: cost,
-      gems_amount: gemsCost,
-    });
   };
 
   const handleCardRevealed = (card) => {

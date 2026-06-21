@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { appClient } from "@/api/appClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,28 +37,11 @@ export default function CreateAuctionModal({ cards, profile, onCreate, onClose }
       return;
     }
 
-    const endsAt = new Date();
-    endsAt.setHours(endsAt.getHours() + parseInt(duration));
-
-    // Deduct listing fee from seller
-    appClient.entities.PlayerProfile.update(profile.id, {
-      coins: (profile.coins || 0) - listingFee,
-    });
-
     onCreate({
       card_id: selectedCard.id,
-      card_name: selectedCard.name,
-      card_rarity: selectedCard.rarity,
-      card_image_url: selectedCard.image_url,
-      seller_id: profile.created_by_id,
-      seller_name: profile.full_name || "Joueur",
       starting_price: startPrice,
-      current_bid: startPrice,
-      status: "active",
-      ends_at: endsAt.toISOString(),
       buyout_price: buyoutPrice ? parseInt(buyoutPrice) : undefined,
-      listing_fee: listingFee,
-      final_fee: estimatedFinalFee,
+      duration_hours: parseInt(duration),
     });
 
     onClose();

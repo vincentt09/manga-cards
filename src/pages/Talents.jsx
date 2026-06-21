@@ -9,6 +9,7 @@ import Navbar from "@/components/game/Navbar";
 import CurrencyBar from "@/components/game/CurrencyBar";
 import { TALENT_TREE, getTalent } from "@/lib/talentData";
 import { getLevelFromXp } from "@/lib/gameData";
+import { LEVEL_REWARDS } from "@/lib/levelRewards";
 
 export default function Talents() {
   const queryClient = useQueryClient();
@@ -27,6 +28,7 @@ export default function Talents() {
   const profile = profiles[0];
   const playerLevel = getLevelFromXp(profile?.xp || 0).level;
   const unlockedTalentIds = new Set(talents.filter(t => t.is_unlocked).map(t => t.talent_id));
+  const nextTalentReward = LEVEL_REWARDS.find((reward) => reward.talentPoints > 0 && reward.level > playerLevel);
 
   const unlockTalent = useMutation({
     mutationFn: (talentId) => appClient.functions.invoke("unlockTalent", { talent_id: talentId }),
@@ -90,8 +92,9 @@ export default function Talents() {
             <span className="text-lg font-bold text-primary">{profile.talent_points || 0}</span>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            1 point aux niveaux 5, 10, 15… jusqu'au niveau 50. Un arbre complet demande les 10 points.
+            Les points sont obtenus dans les récompenses de niveau. Un arbre complet demande 10 points.
           </p>
+          {nextTalentReward && <p className="mt-1 text-xs font-semibold text-primary">Prochain point au niveau {nextTalentReward.level}.</p>}
         </div>
 
         <div className="grid md:grid-cols-3 gap-6">
@@ -159,7 +162,7 @@ export default function Talents() {
                             onClick={() => unlockTalent.mutate(talent.id)}
                             className="text-xs px-3"
                           >
-                            {unlockTalent.isPending ? (
+                            {unlockTalent.isPending && unlockTalent.variables === talent.id ? (
                               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             ) : (
                               "Débloquer"

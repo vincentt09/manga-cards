@@ -46,6 +46,11 @@ export default function Profile() {
     queryFn: () => appClient.entities.Card.list("-power", 200),
   });
 
+  const { data: transactions = [] } = useQuery({
+    queryKey: ["transactions"],
+    queryFn: () => appClient.entities.Transaction.list("-created_date", 500),
+  });
+
   const profile = profiles[0];
   const bannerGradient = BANNER_COLORS.find(banner => banner.id === profile?.banner_id)?.gradient || BANNER_COLORS[0].gradient;
   const avatarUrl = profile?.avatar_url || user?.avatar_url;
@@ -74,7 +79,7 @@ export default function Profile() {
     return { totalPower, maxLevel, rarityCount };
   }, [cards]);
 
-  const achievementData = getAchievementData({ cards, profile, playerLevel: levelInfo.level });
+  const achievementData = getAchievementData({ cards, profile, playerLevel: levelInfo.level, transactions });
   const achievements = ACHIEVEMENTS.map(a => ({ ...a, done: a.check(achievementData) }));
   const unlockedCount = achievements.filter(a => a.done).length;
   const unlockedTitleIds = new Set([
