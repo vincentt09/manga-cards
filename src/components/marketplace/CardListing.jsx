@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { Check, ShoppingBag, X, Zap, Shield, Wind, Star, Coins } from "lucide-react";
+import { Check, ImageOff, ShoppingBag, X, Zap, Shield, Wind, Star, Coins } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RARITY_CONFIG, RARITY_ORDER } from "@/lib/gameData";
 
@@ -32,9 +32,14 @@ export default function CardListing({ listing, onBuy, onCancel, isOwnListing, is
       exit={{ opacity: 0, scale: 0.9 }}
       className={`relative rounded-2xl border-2 ${rarity.borderColor} bg-card overflow-hidden group`}
     >
-      <div className="relative h-44 overflow-hidden">
-        <img src={displayImageUrl} alt={listing.card_name}
-          className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500" />
+      <div className={`relative h-40 overflow-hidden bg-gradient-to-br ${rarity.gradient} sm:h-44`}>
+        {displayImageUrl ? <img src={displayImageUrl} alt={listing.card_name}
+          className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500" /> : (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-white/65">
+            <ImageOff className="h-8 w-8 opacity-50" />
+            <span className="text-xs font-bold">Illustration à venir</span>
+          </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
         {rarity.shimmer && <div className="absolute inset-0 shimmer opacity-10 mix-blend-overlay pointer-events-none" />}
 
@@ -68,20 +73,20 @@ export default function CardListing({ listing, onBuy, onCancel, isOwnListing, is
           <div className="flex items-center gap-0.5"><Wind className="w-3 h-3 text-green-400" /><span className="font-semibold">{listing.card_speed}</span></div>
         </div>
 
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 bg-yellow-500/10 rounded-lg px-2.5 py-1.5 border border-yellow-500/20">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-2 py-1.5">
             <Coins className="w-3.5 h-3.5 text-yellow-400" />
-            <span className="font-bold text-sm text-yellow-300">{listing.price.toLocaleString()}</span>
+            <span className="truncate font-bold text-xs text-yellow-300 sm:text-sm">{listing.price.toLocaleString()}</span>
           </div>
 
           {isOwnListing ? (
             <Button size="sm" variant="outline" onClick={() => onCancel(listing)}
-              className="text-xs border-destructive/40 text-destructive hover:bg-destructive/10">
+              className="w-full min-w-0 px-2 text-[11px] border-destructive/40 text-destructive hover:bg-destructive/10">
               <X className="w-3 h-3 mr-1" />Retirer
             </Button>
           ) : (
             <Button size="sm" onClick={() => onBuy(listing)} disabled={isBuying || listing.purchased}
-              className={`text-xs bg-gradient-to-r ${RARITY_CONFIG[listing.card_rarity]?.gradient || "from-primary to-accent"} border-0 text-white`}>
+              className={`w-full min-w-0 px-2 text-[11px] bg-gradient-to-r ${RARITY_CONFIG[listing.card_rarity]?.gradient || "from-primary to-accent"} border-0 text-white`}>
               {isBuying ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : listing.purchased ? <><Check className="w-3 h-3 mr-1" />Achetée</> : <><ShoppingBag className="w-3 h-3 mr-1" />Acheter</>}
             </Button>
           )}

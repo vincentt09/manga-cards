@@ -13,7 +13,7 @@ export default function FrameListingCard({ listing, onBuy, onCancel, isOwnListin
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.9 }}
-      className={`relative rounded-2xl border-2 ${rarity.borderColor} bg-gradient-to-b ${rarity.gradient} overflow-hidden group p-4`}
+      className={`relative rounded-2xl border-2 ${rarity.borderColor} bg-gradient-to-b ${rarity.gradient} overflow-hidden group p-3 sm:p-4`}
     >
       <div className="aspect-square rounded-xl bg-black/20 flex items-center justify-center mb-3">
         <Frame className={`w-12 h-12 ${rarity.color} opacity-60`} />
@@ -29,20 +29,20 @@ export default function FrameListingCard({ listing, onBuy, onCancel, isOwnListin
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 bg-yellow-500/10 rounded-lg px-2.5 py-1.5 border border-yellow-500/20">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="flex min-w-0 items-center justify-center gap-1.5 bg-yellow-500/10 rounded-lg px-2 py-1.5 border border-yellow-500/20">
           <Coins className="w-3.5 h-3.5 text-yellow-400" />
-          <span className="font-bold text-sm text-yellow-300">{listing.price.toLocaleString()}</span>
+          <span className="truncate font-bold text-xs text-yellow-300 sm:text-sm">{listing.price.toLocaleString()}</span>
         </div>
 
         {isOwnListing ? (
           <Button size="sm" variant="outline" onClick={() => onCancel(listing)}
-            className="text-xs border-destructive/40 text-destructive hover:bg-destructive/10">
+            className="w-full min-w-0 px-2 text-[11px] border-destructive/40 text-destructive hover:bg-destructive/10">
             <X className="w-3 h-3 mr-1" />Retirer
           </Button>
         ) : (
           <Button size="sm" onClick={() => onBuy(listing)} disabled={isBuying}
-            className={`text-xs bg-gradient-to-r ${rarity.gradient} border-0 text-white`}>
+            className={`w-full min-w-0 px-2 text-[11px] bg-gradient-to-r ${rarity.gradient} border-0 text-white`}>
             {isBuying ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ShoppingBag className="w-3 h-3 mr-1" />Acheter</>}
           </Button>
         )}

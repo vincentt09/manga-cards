@@ -229,17 +229,19 @@ export default function Marketplace() {
           </Button>
         </div>
 
-        <div className="flex gap-2 mb-4">
-          {[
-            { id: "cards", label: `Cartes (${otherCardListings.length})` },
-            { id: "frames", label: `Cadres (${otherFrameListings.length})` },
-          ].map(t => (
-            <button key={t.id} onClick={() => { setMarketTab(t.id); setTab("browse"); }}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${marketTab === t.id ? "bg-primary text-white" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}`}>
-              {t.label}
-            </button>
-          ))}
-          <div className="ml-auto flex gap-2">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { id: "cards", label: `Cartes (${otherCardListings.length})` },
+              { id: "frames", label: `Cadres (${otherFrameListings.length})` },
+            ].map(t => (
+              <button key={t.id} onClick={() => { setMarketTab(t.id); setTab("browse"); }}
+                className={`min-w-0 px-3 py-2 rounded-xl text-sm font-semibold transition-all ${marketTab === t.id ? "bg-primary text-white" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
             {[{ id: "browse", label: "Parcourir" }, { id: "mine", label: "Mes annonces" }].map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${tab === t.id ? "bg-primary/20 text-primary border border-primary/30" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}`}>
@@ -262,7 +264,7 @@ export default function Marketplace() {
                 <p className="font-display text-lg font-bold text-cyan-200">{String(Math.floor(rotationSeconds / 60)).padStart(2, "0")}:{String(rotationSeconds % 60).padStart(2, "0")}</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
               {systemMarket.offers.map((offer) => <CardListing key={offer.id} listing={offer} onBuy={handleBuySystemCard} isOwnListing={false} isBuying={buyingId === offer.id} imageOverrides={imageOverrides} />)}
             </div>
           </section>
@@ -291,7 +293,7 @@ export default function Marketplace() {
               <p className="text-muted-foreground font-medium">{tab === "mine" ? "Aucune annonce active" : "Aucune carte en vente"}</p>
             </div>
           ) : (
-            <motion.div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3" layout>
+            <motion.div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5" layout>
               <AnimatePresence>
                 {displayCardListings.map(listing => (
                   <CardListing key={listing.id} listing={listing} onBuy={handleBuyCard} onCancel={handleCancelCard}
@@ -308,7 +310,7 @@ export default function Marketplace() {
               <p className="text-muted-foreground font-medium">{tab === "mine" ? "Aucune annonce active" : "Aucun cadre en vente"}</p>
             </div>
           ) : (
-            <motion.div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" layout>
+            <motion.div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4" layout>
               <AnimatePresence>
                 {displayFrameListings.map(listing => (
                   <FrameListingCard key={listing.id} listing={listing} onBuy={handleBuyFrame} onCancel={handleCancelFrame}
@@ -346,14 +348,14 @@ function SellModal({ myCards, activeCardListings, onSellCard, onClose, isListing
   const listedCardIds = new Set(activeCardListings.map(l => l.card_id));
   const availableCards = myCards.filter(c => !listedCardIds.has(c.id));
   const selectedCard = availableCards.find(c => c.id === selectedCardId);
-  const minPrice = selectedCard ? Math.round({ common: 50, rare: 200, ultra_rare: 500, epic: 1500, legendary: 5000, secret: 15000 }[selectedCard.rarity] || 50) : 1;
+  const minPrice = selectedCard ? Math.round({ normale: 100, legendaire: 5000, "secrète": 25000, manga_god: 150000 }[selectedCard.rarity] || 100) : 1;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
       <motion.div initial={{ scale: 0.9, y: 30 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }}
         onClick={e => e.stopPropagation()}
-        className="bg-card rounded-2xl border border-border w-full max-w-md p-6 shadow-2xl">
+        className="max-h-[calc(100dvh_-_1.5rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-4 shadow-2xl sm:p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="font-display font-bold text-lg flex items-center gap-2"><Tag className="w-5 h-5 text-primary" />Vendre</h2>
           <button onClick={onClose}><X className="w-4 h-4" /></button>

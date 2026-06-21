@@ -143,7 +143,7 @@ export default function Auctions() {
         {/* Header + Economy Panel */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
           <div className="lg:col-span-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <div>
                 <h1 className="font-display text-2xl font-bold tracking-wide flex items-center gap-2">
                   <Gavel className="w-6 h-6 text-primary" />
@@ -155,7 +155,7 @@ export default function Auctions() {
               </div>
               <Button
                 onClick={() => setShowCreateModal(true)}
-                className="bg-primary hover:bg-primary/90"
+                className="w-full bg-primary hover:bg-primary/90 sm:w-auto"
               >
                 <TrendingUp className="w-4 h-4 mr-1.5" />
                 Créer une enchère
@@ -184,10 +184,10 @@ export default function Auctions() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Toutes</SelectItem>
-              <SelectItem value="legendary">Légendaire</SelectItem>
-              <SelectItem value="secret">Secrète</SelectItem>
-              <SelectItem value="epic">Épique</SelectItem>
-              <SelectItem value="ultra_rare">Ultra Rare</SelectItem>
+              <SelectItem value="normale">Normale</SelectItem>
+              <SelectItem value="legendaire">Légendaire</SelectItem>
+              <SelectItem value="secrète">Secrète</SelectItem>
+              <SelectItem value="manga_god">Manga God</SelectItem>
             </SelectContent>
           </Select>
           <Select value={sortBy} onValueChange={setSortBy}>

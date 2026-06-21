@@ -81,11 +81,7 @@ export default function CreateAuctionModal({ cards, profile, onCreate, onClose }
             </Select>
             {selectedCard && (
               <div className="flex items-center gap-3 p-3 bg-secondary/30 rounded-lg">
-                <img
-                  src={selectedCard.image_url}
-                  alt={selectedCard.name}
-                  className="w-16 h-20 object-cover rounded"
-                />
+                {selectedCard.image_url ? <img src={selectedCard.image_url} alt={selectedCard.name} className="w-16 h-20 object-cover rounded" /> : <div className="grid h-20 w-16 place-items-center rounded bg-secondary text-[9px] text-muted-foreground">Sans image</div>}
                 <div>
                   <p className="font-bold text-sm">{selectedCard.name}</p>
                   <p className="text-xs text-muted-foreground">

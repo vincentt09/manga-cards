@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Clock, Coins, TrendingUp, AlertCircle } from "lucide-react";
+import { Clock, Coins, TrendingUp, AlertCircle, ImageOff } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { RARITY_CONFIG } from "@/lib/gameData";
@@ -68,21 +68,16 @@ export default function AuctionCard({ auction, onBid, currentTime, imageOverride
     >
       {/* Card Image */}
       <div className={`relative h-40 bg-gradient-to-br ${rarityConfig.gradient} p-3`}>
-        <img
-          src={displayImageUrl}
-          alt={auction.card_name}
-          className="w-full h-full object-contain drop-shadow-lg"
-          onError={(e) => {
-            e.target.src = "https://via.placeholder.com/200x280?text=Card";
-          }}
-        />
+        {displayImageUrl ? <img src={displayImageUrl} alt={auction.card_name} className="w-full h-full object-contain drop-shadow-lg" /> : (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-white/65"><ImageOff className="h-8 w-8 opacity-50" /><span className="text-xs font-bold">Illustration à venir</span></div>
+        )}
         <div className={`absolute top-2 right-2 px-2 py-1 rounded-md text-xs font-bold bg-black/60 backdrop-blur-sm ${rarityConfig.color}`}>
           {rarityConfig.label}
         </div>
       </div>
 
       {/* Info */}
-      <div className="p-4 space-y-3">
+      <div className="p-3 space-y-3 sm:p-4">
         <div>
           <h3 className="font-display font-bold text-sm truncate">{auction.card_name}</h3>
           <p className="text-xs text-muted-foreground">Vendu par {auction.seller_name}</p>
@@ -108,7 +103,7 @@ export default function AuctionCard({ auction, onBid, currentTime, imageOverride
           
           {auction.highest_bidder_name && (
             <p className="text-xs text-muted-foreground">
-              Meilleur offre: <span className="text-foreground font-medium">{auction.highest_bidder_name}</span>
+            Meilleure offre : <span className="text-foreground font-medium">{auction.highest_bidder_name}</span>
             </p>
           )}
         </div>
@@ -129,7 +124,7 @@ export default function AuctionCard({ auction, onBid, currentTime, imageOverride
             className="w-full border-accent text-accent hover:bg-accent/10"
             onClick={() => onBid(auction, auction.buyout_price)}
           >
-            Achat immédiat: {auction.buyout_price.toLocaleString()} 🪙
+            Achat immédiat : {auction.buyout_price.toLocaleString()} 🪙
           </Button>
         )}
 

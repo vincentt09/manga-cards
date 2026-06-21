@@ -206,7 +206,7 @@ export default function Navbar() {
             <MessageCircle className="w-5 h-5" />
             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-card" />
           </span>
-          <span className="hidden text-sm font-bold min-[390px]:inline">Chat général</span>
+          <span className="hidden text-sm font-bold min-[480px]:inline">Chat général</span>
         </button>
       </motion.div>
     </>
