@@ -30,6 +30,7 @@ const Talents = lazy(() => import('@/pages/Talents'));
 const Auctions = lazy(() => import('@/pages/Auctions'));
 const Leaderboard = lazy(() => import('@/pages/Leaderboard'));
 const Success = lazy(() => import('@/pages/Success'));
+const Pve = lazy(() => import('@/pages/Pve'));
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin, serverWake } = useAuth();
@@ -67,6 +68,7 @@ const AuthenticatedApp = () => {
         <Route path="/talents" element={<Talents />} />
         <Route path="/auctions" element={<Auctions />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
+        <Route path="/pve" element={<Pve />} />
         <Route path="/chat" element={<Navigate to="/" replace />} />
         <Route path="/success" element={<Success />} />
         <Route path="/cosmetics" element={<Navigate to="/profile" replace />} />

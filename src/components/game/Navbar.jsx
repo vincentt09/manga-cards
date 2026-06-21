@@ -9,10 +9,12 @@ import GeneralChatPanel from "@/pages/Chat";
 const TOP_NAV_ITEMS = [
   { path: "/", icon: Home, label: "Collection" },
   { path: "/boosters", icon: Package, label: "Boosters" },
+  { path: "/pve", icon: Swords, label: "PvE" },
   { path: "/marketplace", icon: ShoppingBag, label: "Marché" },
 ];
 
 const MENU_ITEMS = [
+  { path: "/pve", icon: Swords, label: "Arène PvE" },
   { path: "/fusion", icon: Flame, label: "Fusion" },
   { path: "/frames", icon: Frame, label: "Cadres" },
   { path: "/talents", icon: Sparkles, label: "Talents" },

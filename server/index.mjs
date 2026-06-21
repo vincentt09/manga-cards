@@ -8,6 +8,7 @@ import { BOOSTER_TYPES, CARD_POOL, getCoinReward, getDuplicatesForUpgrade, getLe
 import { getTalent } from "../src/lib/talentData.js";
 import { LEVEL_REWARDS } from "../src/lib/levelRewards.js";
 import { DAILY_QUESTS_POOL, WEEKLY_QUESTS_POOL } from "../src/lib/questData.js";
+import { PVE_BOSSES, PVE_ENERGY_REGEN_MS, PVE_MAX_ENERGY } from "../src/lib/pveData.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envFile = path.join(root, ".env");
@@ -137,6 +138,20 @@ const settleExpiredAuctions = (db) => {
       Object.assign(auction, { status: "expired", updated_date: stamp });
     }
   }
+};
+const refreshPveEnergy = (profile) => {
+  const now = Date.now();
+  let energy = Math.max(0, Math.min(PVE_MAX_ENERGY, Number(profile.pve_energy ?? PVE_MAX_ENERGY)));
+  const lastUpdate = profile.pve_energy_updated_at ? new Date(profile.pve_energy_updated_at).getTime() : now;
+  const gained = Math.max(0, Math.floor((now - lastUpdate) / PVE_ENERGY_REGEN_MS));
+  if (gained > 0) energy = Math.min(PVE_MAX_ENERGY, energy + gained);
+  profile.pve_energy = energy;
+  profile.pve_energy_updated_at = new Date(energy >= PVE_MAX_ENERGY ? now : lastUpdate + gained * PVE_ENERGY_REGEN_MS).toISOString();
+  return {
+    energy,
+    maxEnergy: PVE_MAX_ENERGY,
+    nextEnergyAt: energy >= PVE_MAX_ENERGY ? null : new Date(new Date(profile.pve_energy_updated_at).getTime() + PVE_ENERGY_REGEN_MS).toISOString(),
+  };
 };
 const weekKey = (date = new Date()) => {
   const value = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -564,7 +579,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     return json(res, 403, { message: "Operation interdite sur les utilisateurs." });
   }
   db.entities[name] ||= []; const rows = db.entities[name];
-  const privateEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "UserCosmetic", "ProfileCustomization"]);
+  const privateEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization"]);
   const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats"]);
   const collaborativeEntities = new Set();
   const canAccess = (row) => user.role === "admin" || !privateEntities.has(name) || row.created_by_id === user.id;
@@ -641,7 +656,91 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "getAuctions") {
+  if (name === "getPveState") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const energy = refreshPveEnergy(profile);
+    const deckIds = Array.isArray(profile.pve_deck_ids) ? profile.pve_deck_ids : [];
+    const deck = deckIds.map((cardId) => (entities.Card || []).find((card) => card.id === cardId && card.created_by_id === user.id)).filter(Boolean).map((card) => resolvedCard(db, card));
+    result = {
+      ...energy,
+      deck,
+      maxStage: Math.max(1, Number(profile.pve_max_stage || 1)),
+      clearedStages: Array.isArray(profile.pve_cleared_stages) ? profile.pve_cleared_stages : [],
+      wins: Number(profile.pve_wins || 0),
+      losses: Number(profile.pve_losses || 0),
+    };
+  } else if (name === "setPveDeck") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const cardIds = [...new Set(Array.isArray(input.card_ids) ? input.card_ids : [])];
+    if (cardIds.length < 1 || cardIds.length > 5) return json(res, 400, { message: "Ton équipe doit contenir entre 1 et 5 cartes." });
+    const ownedCards = cardIds.map((cardId) => (entities.Card || []).find((card) => card.id === cardId && card.created_by_id === user.id));
+    if (ownedCards.some((card) => !card)) return json(res, 403, { message: "Une carte sélectionnée ne t’appartient pas." });
+    profile.pve_deck_ids = cardIds;
+    profile.updated_date = new Date().toISOString();
+    result = { deck: ownedCards.map((card) => resolvedCard(db, card)) };
+  } else if (name === "fightPveBoss") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const boss = PVE_BOSSES.find((candidate) => candidate.id === input.boss_id);
+    if (!boss) return json(res, 404, { message: "Boss introuvable." });
+    const maxStage = Math.max(1, Number(profile.pve_max_stage || 1));
+    if (boss.stage > maxStage) return json(res, 403, { message: "Ce palier n’est pas encore débloqué." });
+    const energyState = refreshPveEnergy(profile);
+    if (energyState.energy < 1) return json(res, 429, { message: "Plus d’énergie. Une énergie revient toutes les 30 minutes." });
+    const deckIds = Array.isArray(profile.pve_deck_ids) ? profile.pve_deck_ids : [];
+    const deck = deckIds.map((cardId) => (entities.Card || []).find((card) => card.id === cardId && card.created_by_id === user.id)).filter(Boolean);
+    if (!deck.length) return json(res, 400, { message: "Compose d’abord ton équipe PvE." });
+    profile.pve_energy = energyState.energy - 1;
+    profile.pve_energy_updated_at = new Date().toISOString();
+    const levelMultiplier = (card) => 1 + (Math.min(100, Number(card.level || 1)) - 1) * 0.012;
+    const teamAttack = deck.reduce((sum, card) => sum + Number(card.attack || 0) * levelMultiplier(card), 0);
+    const teamDefense = deck.reduce((sum, card) => sum + Number(card.defense || 0) * levelMultiplier(card), 0);
+    const teamSpeed = deck.reduce((sum, card) => sum + Number(card.speed || 0) * levelMultiplier(card), 0);
+    const teamPower = deck.reduce((sum, card) => sum + Number(card.power || 0) * levelMultiplier(card), 0);
+    let playerHp = Math.round(500 + teamDefense * 6);
+    let bossHp = boss.hp;
+    const playerMaxHp = playerHp;
+    const rounds = [];
+    const randomFactor = () => 0.9 + crypto.randomInt(0, 201) / 1000;
+    for (let round = 1; round <= 20 && playerHp > 0 && bossHp > 0; round++) {
+      const critChance = Math.min(0.28, 0.05 + teamSpeed / Math.max(1, teamSpeed + boss.speed) * 0.18);
+      const critical = crypto.randomInt(0, 10_000) / 10_000 < critChance;
+      const playerDamage = Math.max(1, Math.round((teamAttack * 0.55 + teamPower * 0.25 - boss.defense * 0.35) * randomFactor() * (critical ? 1.65 : 1)));
+      const bossDamage = Math.max(1, Math.round((boss.attack * 0.42 - teamDefense * 0.12) * randomFactor()));
+      const playerFirst = teamSpeed >= boss.speed;
+      if (playerFirst) {
+        bossHp = Math.max(0, bossHp - playerDamage);
+        if (bossHp > 0) playerHp = Math.max(0, playerHp - bossDamage);
+      } else {
+        playerHp = Math.max(0, playerHp - bossDamage);
+        if (playerHp > 0) bossHp = Math.max(0, bossHp - playerDamage);
+      }
+      rounds.push({ round, playerDamage: playerHp > 0 || playerFirst ? playerDamage : 0, bossDamage: bossHp > 0 || !playerFirst ? bossDamage : 0, critical, playerHp, bossHp });
+    }
+    const victory = bossHp <= 0 && playerHp > 0;
+    const clearedStages = Array.isArray(profile.pve_cleared_stages) ? profile.pve_cleared_stages : [];
+    const firstClear = victory && !clearedStages.includes(boss.stage);
+    const rewardScale = firstClear ? 1 : 0.20;
+    const coins = victory ? Math.max(1, Math.round(boss.rewardCoins * rewardScale)) : 0;
+    const xp = victory ? Math.max(1, Math.round(boss.rewardXp * rewardScale)) : 0;
+    const gems = victory ? Math.round(Number(boss.rewardGems || 0) * rewardScale) : 0;
+    if (victory) {
+      profile.coins = Number(profile.coins || 0) + coins;
+      profile.xp = Number(profile.xp || 0) + xp;
+      profile.gems = Number(profile.gems || 0) + gems;
+      profile.pve_wins = Number(profile.pve_wins || 0) + 1;
+      if (firstClear) profile.pve_cleared_stages = [...clearedStages, boss.stage].sort((a, b) => a - b);
+      profile.pve_max_stage = Math.min(PVE_BOSSES.length, Math.max(maxStage, boss.stage + 1));
+    } else {
+      profile.pve_losses = Number(profile.pve_losses || 0) + 1;
+    }
+    profile.level = getLevelFromXp(Number(profile.xp || 0)).level;
+    profile.updated_date = new Date().toISOString();
+    entities.PveBattle ||= [];
+    const battle = { id: id(), boss_id: boss.id, boss_name: boss.name, stage: boss.stage, victory, first_clear: firstClear, rewards: { coins, xp, gems }, team_card_ids: deck.map((card) => card.id), team_power: Math.round(teamPower), player_hp: playerHp, player_max_hp: playerMaxHp, boss_hp: bossHp, boss_max_hp: boss.hp, rounds, created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString() };
+    entities.PveBattle.push(battle);
+    if (entities.PveBattle.length > 1000) entities.PveBattle = entities.PveBattle.slice(-1000);
+    result = { ...battle, energy: profile.pve_energy, maxStage: profile.pve_max_stage, profile };
+  } else if (name === "getAuctions") {
     settleExpiredAuctions(db);
     result = (entities.Auction || []).sort((a, b) => new Date(a.ends_at) - new Date(b.ends_at));
   } else if (name === "createAuction") {

@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Home, Package, ShoppingBag, Flame, User } from "lucide-react";
+import { Home, Package, ShoppingBag, Swords, User } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -8,7 +8,7 @@ const NAV_ITEMS = [
   { path: "/", icon: Home, label: "Collection" },
   { path: "/boosters", icon: Package, label: "Boosters" },
   { path: "/marketplace", icon: ShoppingBag, label: "Marché" },
-  { path: "/fusion", icon: Flame, label: "Fusion" },
+  { path: "/pve", icon: Swords, label: "PvE" },
   { path: "/profile", icon: User, label: "Profil" },
 ];
 
