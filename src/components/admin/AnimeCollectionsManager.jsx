@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { appClient } from "@/api/appClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Plus, Edit2, Trash2, Save, X, Coins, Gem, Gift } from "lucide-react";
+import { Plus, Edit2, Trash2, Save, X, Coins, Gem, Gift, UserPlus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,23 +33,36 @@ const COLOR_PRESETS = [
 export default function AnimeCollectionsManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const refreshCollections = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["admin_anime_collections"] }),
+    queryClient.invalidateQueries({ queryKey: ["anime_collections"] }),
+  ]);
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [addingCharacterTo, setAddingCharacterTo] = useState(null);
 
-  const { data: collections = [] } = useQuery({
-    queryKey: ["anime_collections"],
-    queryFn: () => appClient.entities.AnimeCollection.list("-created_date"),
+  const { data: collectionsResponse } = useQuery({
+    queryKey: ["admin_anime_collections"],
+    queryFn: async () => {
+      const response = await appClient.functions.invoke("getAdminCollections");
+      if (response.data?.merged?.length || response.data?.attached_cards > 0 || response.data?.normalized_anime_names > 0) queryClient.invalidateQueries({ queryKey: ["card_definitions"] });
+      return response;
+    },
+    refetchOnMount: "always",
   });
+  const collections = collectionsResponse?.data?.collections || [];
+  const { data: cardDefinitions = [] } = useQuery({ queryKey: ["card_definitions"], queryFn: () => appClient.entities.CardDefinition.list("anime") });
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
       await appClient.entities.AnimeCollection.create(data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["anime_collections"] });
+      refreshCollections();
       setShowForm(false);
       toast({ title: "✅ Collection créée", description: "Le booster est maintenant disponible dans le shop" });
     },
+    onError: (error) => toast({ title: "Création impossible", description: error.message, variant: "destructive" }),
   });
 
   const updateMutation = useMutation({
@@ -57,10 +70,11 @@ export default function AnimeCollectionsManager() {
       await appClient.entities.AnimeCollection.update(id, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["anime_collections"] });
+      refreshCollections();
       setEditingId(null);
       toast({ title: "✅ Collection mise à jour" });
     },
+    onError: (error) => toast({ title: "Modification impossible", description: error.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -68,10 +82,27 @@ export default function AnimeCollectionsManager() {
       await appClient.entities.AnimeCollection.delete(id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["anime_collections"] });
+      refreshCollections();
       toast({ title: "🗑️ Collection supprimée" });
     },
   });
+
+  const addCharacterMutation = useMutation({
+    mutationFn: (payload) => appClient.functions.invoke("adminAddCollectionCharacter", payload),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ["card_definitions"] });
+      refreshCollections();
+      setAddingCharacterTo(null);
+      toast({ title: "4 versions ajoutées", description: `${response.data.cards[0].name} est maintenant disponible dans ${response.data.collection.name}.` });
+    },
+    onError: (error) => toast({ title: "Ajout impossible", description: error.message, variant: "destructive" }),
+  });
+
+  const submitCharacter = (event, collection) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    addCharacterMutation.mutate({ collection_id: collection.id, name: data.get("character_name"), is_collector: data.get("is_collector") === "on", edition_label: data.get("edition_label") });
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -93,7 +124,7 @@ export default function AnimeCollectionsManager() {
       collector_only: formData.get("collector_only") === "on",
       starts_at: formData.get("starts_at") ? new Date(formData.get("starts_at")).toISOString() : null,
       ends_at: formData.get("ends_at") ? new Date(formData.get("ends_at")).toISOString() : null,
-      is_active: true,
+      is_active: formData.get("is_active") === "on",
     };
 
     if (editingId) {
@@ -107,6 +138,7 @@ export default function AnimeCollectionsManager() {
     setEditingId(collection.id);
     setShowForm(true);
   };
+  const charactersFor = (collection) => [...new Set(cardDefinitions.filter(card => card.collection_id === collection.id).map(card => card.name))];
 
   return (
     <div className="space-y-4">
@@ -186,6 +218,10 @@ export default function AnimeCollectionsManager() {
                     <Input name="icon" defaultValue={editingId ? collections.find(c => c.id === editingId)?.icon : "📦"} placeholder="📦" className="bg-secondary/30" />
                   </div>
                   <div className="md:col-span-2 rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+                    <label className="flex items-center gap-2 text-sm font-semibold">
+                      <input type="checkbox" name="is_active" defaultChecked={editingId ? collections.find(c => c.id === editingId)?.is_active !== false : true} />
+                      Collection active et visible dans le jeu
+                    </label>
                     <label className="flex items-center gap-2 text-sm font-semibold text-emerald-300">
                       <input type="checkbox" name="is_free" defaultChecked={editingId ? collections.find(c => c.id === editingId)?.is_free : false} />
                       <Gift className="w-4 h-4" /> Offrir ce booster gratuitement aux joueurs
@@ -277,11 +313,15 @@ export default function AnimeCollectionsManager() {
                         {collection.ends_at && <span className="text-muted-foreground">Fin : {new Date(collection.ends_at).toLocaleString("fr-FR")}</span>}
                         <span className="text-muted-foreground">•</span>
                         <span className="text-primary">Garantie: {RARITY_OPTIONS.find(r => r.value === collection.guaranteed_rarity)?.label}</span>
+                        <span className="inline-flex items-center gap-1 text-cyan-300"><Users className="h-3 w-3" />{charactersFor(collection).length} personnages</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    <Button size="sm" variant="outline" onClick={() => setAddingCharacterTo(addingCharacterTo === collection.id ? null : collection.id)} title="Ajouter un personnage">
+                      <UserPlus className="w-3.5 h-3.5" />
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => handleEdit(collection)}>
                       <Edit2 className="w-3.5 h-3.5" />
                     </Button>
@@ -290,6 +330,7 @@ export default function AnimeCollectionsManager() {
                     </Button>
                   </div>
                 </div>
+                {addingCharacterTo === collection.id && <form onSubmit={(event) => submitCharacter(event, collection)} className="mt-4 grid grid-cols-1 gap-3 border-t border-border pt-4 sm:grid-cols-2"><label className="text-xs font-semibold">Nom du personnage<Input name="character_name" required minLength={2} maxLength={60} placeholder="Ex. Shanks" className="mt-1.5" /></label><label className="text-xs font-semibold">Nom de l’édition collector<Input name="edition_label" placeholder="Édition Collector" className="mt-1.5" /></label><label className="flex items-center gap-2 text-xs sm:col-span-2"><input type="checkbox" name="is_collector" />Créer comme édition collector</label><div className="flex gap-2 sm:col-span-2"><Button type="submit" size="sm" disabled={addCharacterMutation.isPending}><UserPlus className="mr-1.5 h-4 w-4" />{addCharacterMutation.isPending ? "Création…" : "Créer les 4 versions"}</Button><Button type="button" size="sm" variant="ghost" onClick={() => setAddingCharacterTo(null)}>Annuler</Button></div></form>}
               </CardContent>
             </Card>
           </motion.div>

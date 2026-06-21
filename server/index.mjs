@@ -32,7 +32,7 @@ let dbCache = null;
 
 const EXTRA_CHARACTERS = {
   Naruto: ["Gaara", "Jiraiya", "Tsunade", "Orochimaru", "Minato Namikaze"],
-  "One Piece": ["Usopp", "Nico Robin", "Tony Tony Chopper", "Trafalgar Law", "Portgas D. Ace", "Boa Hancock"],
+  "One Piece": ["Usopp", "Nico Robin", "Tony Tony Chopper", "Trafalgar Law", "Portgas D. Ace", "Boa Hancock", "Shanks"],
   "Dragon Ball": ["Piccolo", "Trunks", "Krillin", "Android 18", "Beerus", "Broly"],
   "Attack on Titan": ["Armin Arlert", "Erwin Smith", "Hange Zoe", "Reiner Braun", "Annie Leonhart", "Jean Kirstein", "Sasha Blouse"],
   "Demon Slayer": ["Inosuke Hashibira", "Giyu Tomioka", "Shinobu Kocho", "Tengen Uzui", "Mitsuri Kanroji", "Muichiro Tokito"],
@@ -46,6 +46,11 @@ const rarityTemplates = {
   manga_god: { suffix: "mg", power: 121, attack: 118, defense: 105, speed: 115 },
 };
 const slug = (value) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+const canonicalAnimeNames = [...new Set(CARD_POOL.map((card) => card.anime).filter(Boolean))];
+const canonicalAnimeName = (value) => {
+  const trimmed = String(value || "").replace(/\s+/g, " ").trim();
+  return canonicalAnimeNames.find((name) => name.toLocaleLowerCase("fr") === trimmed.toLocaleLowerCase("fr")) || trimmed;
+};
 const generatedCatalogCards = Object.entries(EXTRA_CHARACTERS).flatMap(([anime, names]) => names.flatMap((name, characterIndex) =>
   Object.entries(rarityTemplates).map(([rarity, template]) => ({
     id: `catalog_${slug(anime)}_${slug(name)}_${template.suffix}`,
@@ -91,6 +96,35 @@ const ensureBaseFrameCatalog = (entities) => {
     }
   }
   return changed;
+};
+const repairDuplicateCollections = (db) => {
+  const collections = db.entities.AnimeCollection || [];
+  const groups = new Map();
+  for (const collection of collections) {
+    const key = `${String(collection.name || "").trim().toLocaleLowerCase("fr")}|${String(collection.anime || "").trim().toLocaleLowerCase("fr")}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(collection);
+  }
+  const removedIds = new Set();
+  const merged = [];
+  for (const duplicates of groups.values()) {
+    if (duplicates.length < 2) continue;
+    const referenced = id => (db.entities.CardDefinition || []).filter((card) => card.collection_id === id).length;
+    const ordered = [...duplicates].sort((a, b) => referenced(b.id) - referenced(a.id) || new Date(a.created_date || 0) - new Date(b.created_date || 0));
+    const canonical = ordered[0];
+    for (const duplicate of ordered.slice(1)) {
+      for (const definition of db.entities.CardDefinition || []) if (definition.collection_id === duplicate.id) definition.collection_id = canonical.id;
+      for (const profile of db.entities.PlayerProfile || []) {
+        if (!profile.boosters_count?.[duplicate.id]) continue;
+        profile.boosters_count[canonical.id] = Number(profile.boosters_count[canonical.id] || 0) + Number(profile.boosters_count[duplicate.id] || 0);
+        delete profile.boosters_count[duplicate.id];
+      }
+      removedIds.add(duplicate.id);
+      merged.push({ removed_id: duplicate.id, kept_id: canonical.id, name: canonical.name });
+    }
+  }
+  if (removedIds.size) db.entities.AnimeCollection = collections.filter((collection) => !removedIds.has(collection.id));
+  return merged;
 };
 const FUSION_RECIPES = {
   normale: { count: 5, copiesEach: 5, result: "legendaire", cost: 50_000, minLevel: 10, xp: 1_000 },
@@ -709,6 +743,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Les talents doivent être débloqués depuis l'arbre de talents." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
+    if (["AnimeCollection", "CardDefinition"].includes(name) && input.anime) input.anime = canonicalAnimeName(input.anime);
     if (!Array.isArray(input)) return json(res, 400, { message: "Liste invalide." });
     if (name === "Quest" && user.role !== "admin") {
       const now = Date.now();
@@ -724,6 +759,10 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     if (name === "Auction" && user.role !== "admin") return json(res, 403, { message: "Utilise la création d’enchère sécurisée." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
+    if (name === "AnimeCollection") {
+      const duplicate = rows.some((row) => String(row.name || "").trim().toLocaleLowerCase("fr") === String(input.name || "").trim().toLocaleLowerCase("fr") && String(row.anime || "").trim().toLocaleLowerCase("fr") === String(input.anime || "").trim().toLocaleLowerCase("fr"));
+      if (duplicate) return json(res, 409, { message: "Une collection identique existe déjà. Modifie la collection existante." });
+    }
     if (name === "Quest" && user.role !== "admin") {
       input = createQuestRow(input);
       if (!input) return json(res, 400, { message: "Quête invalide." });
@@ -739,6 +778,8 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   if (req.method === "PUT") {
     if (!canWrite(item)) return json(res, 403, { message: "Modification interdite." });
     const input = await body(req); delete input.id; delete input.created_by_id; delete input.created_by; delete input.created_date;
+    if (["AnimeCollection", "CardDefinition"].includes(name) && input.anime) input.anime = canonicalAnimeName(input.anime);
+    if (name === "AnimeCollection" && rows.some((row) => row.id !== item.id && String(row.name || "").trim().toLocaleLowerCase("fr") === String(input.name ?? item.name ?? "").trim().toLocaleLowerCase("fr") && String(row.anime || "").trim().toLocaleLowerCase("fr") === String(input.anime ?? item.anime ?? "").trim().toLocaleLowerCase("fr"))) return json(res, 409, { message: "Une collection identique existe déjà." });
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Modification de talent interdite." });
     if (name === "Auction" && user.role !== "admin") return json(res, 403, { message: "Utilise le système d’enchère sécurisé." });
     if (name === "PlayerProfile" && user.role !== "admin") { delete input.talent_points; delete input.claimed_rewards; }
@@ -767,7 +808,53 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "getAdminFrames") {
+  if (name === "getAdminCollections") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    let normalizedAnimeNames = 0;
+    for (const row of [...(entities.AnimeCollection || []), ...(entities.CardDefinition || [])]) {
+      if (!row.anime) continue;
+      const canonical = canonicalAnimeName(row.anime);
+      if (canonical !== row.anime) { row.anime = canonical; row.updated_date = new Date().toISOString(); normalizedAnimeNames += 1; }
+    }
+    const merged = repairDuplicateCollections(db);
+    let attachedCards = 0;
+    for (const definition of entities.CardDefinition || []) {
+      if (definition.collection_id || !definition.anime || definition.is_collector) continue;
+      const candidates = (entities.AnimeCollection || []).filter((collection) => collection.is_limited !== true && collection.collector_only !== true && String(collection.anime || "").toLocaleLowerCase("fr") === String(definition.anime).toLocaleLowerCase("fr"));
+      if (candidates.length === 1) { definition.collection_id = candidates[0].id; attachedCards += 1; }
+    }
+    if (merged.length) recordAdminAudit(db, user, "duplicate_collections_merged", null, { merged });
+    result = { collections: [...(entities.AnimeCollection || [])].sort((a, b) => String(a.name).localeCompare(String(b.name), "fr")), merged, attached_cards: attachedCards, normalized_anime_names: normalizedAnimeNames };
+  } else if (name === "adminAddCollectionCharacter") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const collection = (entities.AnimeCollection || []).find((item) => item.id === input.collection_id);
+    if (!collection) return json(res, 404, { message: "Collection introuvable." });
+    const characterName = String(input.name || "").replace(/\s+/g, " ").trim();
+    if (characterName.length < 2 || characterName.length > 60) return json(res, 400, { message: "Le nom doit contenir entre 2 et 60 caractères." });
+    const anime = canonicalAnimeName(collection.anime || input.anime);
+    if (!anime) return json(res, 400, { message: "La collection doit avoir une série anime." });
+    const isCollector = Boolean(input.is_collector);
+    const exists = (entities.CardDefinition || []).some((card) => card.collection_id === collection.id && String(card.name).toLocaleLowerCase("fr") === characterName.toLocaleLowerCase("fr") && Boolean(card.is_collector) === isCollector);
+    if (exists) return json(res, 409, { message: "Ce personnage possède déjà ses versions dans cette collection." });
+    const templates = {
+      normale: { power: 45, attack: 42, defense: 40, speed: 44 },
+      legendaire: { power: 92, attack: 90, defense: 84, speed: 90 },
+      "secrète": { power: 108, attack: 106, defense: 97, speed: 105 },
+      manga_god: { power: 121, attack: 118, defense: 105, speed: 115 },
+    };
+    const now = new Date().toISOString();
+    const created = Object.entries(templates).map(([rarity, stats]) => ({
+      id: id(), name: characterName, anime, rarity, collection_id: collection.id,
+      edition: isCollector ? "collector" : "standard", edition_label: isCollector ? String(input.edition_label || "Édition Collector").slice(0, 80) : "Standard",
+      is_collector: isCollector, is_active: true, image_url: null,
+      basePower: stats.power, baseAttack: stats.attack, baseDefense: stats.defense, baseSpeed: stats.speed,
+      created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now,
+    }));
+    entities.CardDefinition ||= [];
+    entities.CardDefinition.push(...created);
+    recordAdminAudit(db, user, "collection_character_added", null, { collection_id: collection.id, collection_name: collection.name, character: characterName, collector: isCollector });
+    result = { collection, cards: created };
+  } else if (name === "getAdminFrames") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     ensureBaseFrameCatalog(entities);
     result = [...(entities.CardFrame || [])].sort((a, b) => Number(b.is_endgame) - Number(a.is_endgame) || String(a.name).localeCompare(String(b.name), "fr"));

@@ -215,6 +215,10 @@ export default function Boosters() {
     queryKey: ["profile"],
     queryFn: () => appClient.entities.PlayerProfile.list(),
   });
+  const { data: existingCards = [] } = useQuery({
+    queryKey: ["cards"],
+    queryFn: () => appClient.entities.Card.list("-created_date", 1000),
+  });
 
   const { data: talents = [] } = useQuery({
     queryKey: ["talents"],
