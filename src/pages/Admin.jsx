@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Users, Image as ImageIcon, BarChart3, Coins, Package, Layers,
-  Search, Crown, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList
+  Search, Crown, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList, LockKeyhole
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import InventoryDashboard from "@/components/admin/InventoryDashboard";
 import AnimeCollectionsManager from "@/components/admin/AnimeCollectionsManager";
 import DropEventsManager from "@/components/admin/DropEventsManager";
 import FramesManager from "@/components/admin/FramesManager";
+import AdminSecurityCenter from "@/components/admin/AdminSecurityCenter";
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 const TABS = [
@@ -35,6 +36,7 @@ const TABS = [
   { id: "frames",    label: "Cadres",         icon: Crown },
   { id: "economy",   label: "Économie",       icon: Coins },
   { id: "audit",     label: "Journal",        icon: ClipboardList },
+  { id: "security",  label: "Sécurité",       icon: LockKeyhole },
 ];
 
 // ─── Cleanup Duplicate Cards Function ─────────────────────────────────────────
@@ -379,7 +381,7 @@ function EconomyTab({ profiles, onGiveCoinsAll, onGiveGemsAll }) {
 
 // ─── Main Admin Page ──────────────────────────────────────────────────────────
 function AuditLog({ entries }) {
-  const labels = { user_updated: "Compte modifié", user_deleted: "Compte supprimé", player_reset: "Progression réinitialisée", orphan_cleanup: "Données orphelines nettoyées" };
+  const labels = { user_updated: "Compte modifié", user_deleted: "Compte supprimé", player_reset: "Progression réinitialisée", orphan_cleanup: "Données orphelines nettoyées", backup_created: "Sauvegarde créée", backup_restored: "Sauvegarde restaurée", user_muted: "Joueur rendu muet", user_unmuted: "Parole rendue", chat_report_resolved: "Signalement traité" };
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="flex items-center gap-2 font-display text-lg font-bold"><ClipboardList className="h-5 w-5 text-primary" />Journal de sécurité</h2><p className="mt-1 text-xs text-muted-foreground">Les actions sensibles des administrateurs sont conservées ici.</p></div>
@@ -552,6 +554,7 @@ export default function Admin() {
             {tab === "frames"   && <FramesManager />}
             {tab === "economy"  && <EconomyTab profiles={profiles} onGiveCoinsAll={handleGiveCoinsAll} onGiveGemsAll={handleGiveGemsAll} />}
             {tab === "audit"    && <AuditLog entries={auditEntries} />}
+            {tab === "security" && <AdminSecurityCenter />}
           </motion.div>
         </AnimatePresence>
       </div>

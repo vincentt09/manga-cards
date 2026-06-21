@@ -2,6 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { GridFSBucket, MongoClient, ObjectId } from "mongodb";
 import { BOOSTER_TYPES, CARD_POOL, getCoinReward, getDuplicatesForUpgrade, getLevelFromXp, getTotalIncome, getXpReward } from "../src/lib/gameData.js";
@@ -191,6 +192,37 @@ const mongoDb = async () => {
   }
   return mongoClient.db(mongoDatabaseName);
 };
+const createDatabaseBackup = async (db, { reason = "manual", actor = null } = {}) => {
+  const remote = await mongoDb();
+  if (!remote) throw new Error("MongoDB est requis pour créer une sauvegarde.");
+  const snapshot = structuredClone(db);
+  snapshot.sessions = [];
+  snapshot.resetTokens = [];
+  snapshot.oauthStates = [];
+  const payload = gzipSync(Buffer.from(JSON.stringify(snapshot)));
+  if (payload.length > 14 * 1024 * 1024) throw new Error("La sauvegarde dépasse la limite de sécurité de 14 Mo.");
+  const now = new Date();
+  const result = await remote.collection("admin_backups").insertOne({
+    created_at: now, reason, actor_id: actor?.id || null, actor_email: actor?.email || null,
+    bytes: payload.length, users_count: snapshot.users.length,
+    cards_count: (snapshot.entities.Card || []).length, entities_count: Object.values(snapshot.entities).reduce((sum, rows) => sum + (rows?.length || 0), 0),
+    payload,
+  });
+  const expired = await remote.collection("admin_backups").find({}, { projection: { _id: 1 } }).sort({ created_at: -1 }).skip(14).toArray();
+  if (expired.length) await remote.collection("admin_backups").deleteMany({ _id: { $in: expired.map((item) => item._id) } });
+  return { id: result.insertedId.toString(), created_at: now.toISOString(), reason, bytes: payload.length, users_count: snapshot.users.length, cards_count: (snapshot.entities.Card || []).length };
+};
+const listDatabaseBackups = async () => {
+  const remote = await mongoDb();
+  if (!remote) throw new Error("MongoDB est requis pour consulter les sauvegardes.");
+  return (await remote.collection("admin_backups").find({}, { projection: { payload: 0 } }).sort({ created_at: -1 }).limit(50).toArray()).map(({ _id, created_at, ...item }) => ({ id: _id.toString(), created_at: created_at.toISOString(), ...item }));
+};
+const ensureDailyBackup = async (db) => {
+  const remote = await mongoDb();
+  if (!remote) return;
+  const latest = await remote.collection("admin_backups").findOne({ reason: "automatic" }, { sort: { created_at: -1 }, projection: { created_at: 1 } });
+  if (!latest || Date.now() - new Date(latest.created_at).getTime() >= 24 * 60 * 60 * 1000) await createDatabaseBackup(db, { reason: "automatic" });
+};
 const syncMongoCollection = async (collection, rows) => {
   const ids = rows.map((row) => row.id);
   if (rows.length) {
@@ -276,6 +308,7 @@ const readDb = async () => {
   }
   if (framesChanged) await syncMongoCollection(remote.collection(entityCollectionName("CardFrame")), db.entities.CardFrame);
   dbCache = db;
+  await ensureDailyBackup(dbCache).catch((error) => console.error("Sauvegarde automatique impossible :", error.message));
   return dbCache;
 };
 const writeDb = async (db) => {
@@ -554,7 +587,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   const match = pathname.match(/^\/api\/entities\/([^/]+)(?:\/(.+))?$/); if (!match) return false;
   const [, name, action] = match;
   if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name)) return json(res, 400, { message: "Nom d'entite invalide." });
-  if (name === "AdminAudit" && user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+  if (["AdminAudit", "ChatReport"].includes(name) && user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
   if (name === "ChatMessage") {
     db.entities.ChatMessage ||= [];
     const messages = db.entities.ChatMessage;
@@ -565,6 +598,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     }
     if (req.method === "POST" && !action) {
       const input = await body(req);
+      if (user.chat_muted_until && new Date(user.chat_muted_until).getTime() > Date.now()) return json(res, 403, { message: `Chat bloqué jusqu’au ${new Date(user.chat_muted_until).toLocaleString("fr-FR")}. ${user.chat_mute_reason || ""}`.trim() });
       const message = String(input.message || "").replace(/\s+/g, " ").trim();
       if (!message || message.length > 300) return json(res, 400, { message: "Le message doit contenir entre 1 et 300 caractères." });
       const lastMessage = messages.filter((item) => item.created_by_id === user.id).sort((a, b) => new Date(b.created_date) - new Date(a.created_date))[0];
@@ -728,7 +762,87 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "adminCleanupOrphanData") {
+  if (name === "getAdminBackups") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    result = await listDatabaseBackups();
+  } else if (name === "createAdminBackup") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    result = await createDatabaseBackup(db, { reason: "manual", actor: user });
+    recordAdminAudit(db, user, "backup_created", null, { backup_id: result.id, bytes: result.bytes });
+  } else if (name === "restoreAdminBackup") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    if (input.confirmation !== "RESTAURER") return json(res, 400, { message: "Confirmation de restauration invalide." });
+    const remote = await mongoDb();
+    if (!remote || !ObjectId.isValid(input.backup_id)) return json(res, 404, { message: "Sauvegarde introuvable." });
+    const backup = await remote.collection("admin_backups").findOne({ _id: new ObjectId(input.backup_id) });
+    if (!backup?.payload) return json(res, 404, { message: "Sauvegarde introuvable." });
+    await createDatabaseBackup(db, { reason: "before_restore", actor: user });
+    const restored = JSON.parse(gunzipSync(Buffer.from(backup.payload.buffer || backup.payload)).toString("utf8"));
+    const activeSessions = db.sessions;
+    Object.assign(db, emptyDb(), restored, { sessions: activeSessions, resetTokens: [], oauthStates: [] });
+    recordAdminAudit(db, user, "backup_restored", null, { backup_id: input.backup_id, backup_created_at: backup.created_at });
+    result = { success: true, backup_id: input.backup_id, users_count: db.users.length, cards_count: (db.entities.Card || []).length };
+  } else if (name === "reportChatMessage") {
+    const message = (entities.ChatMessage || []).find((item) => item.id === input.message_id);
+    if (!message) return json(res, 404, { message: "Message introuvable." });
+    if (message.created_by_id === user.id) return json(res, 400, { message: "Tu ne peux pas signaler ton propre message." });
+    entities.ChatReport ||= [];
+    if (entities.ChatReport.some((item) => item.message_id === message.id && item.reporter_id === user.id && item.status === "pending")) return json(res, 409, { message: "Ce message est déjà signalé." });
+    const report = { id: id(), message_id: message.id, message_text: message.message, reported_user_id: message.created_by_id, reported_user_name: message.display_name, reporter_id: user.id, reason: String(input.reason || "contenu_inapproprie").slice(0, 80), status: "pending", created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString() };
+    entities.ChatReport.push(report); result = report;
+  } else if (name === "adminModerateUser") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === input.user_id);
+    if (!target || target.id === user.id) return json(res, 400, { message: "Ce compte ne peut pas être modéré ici." });
+    const minutes = Math.max(0, Math.min(43_200, Math.floor(Number(input.minutes || 0))));
+    if (input.action === "unmute") { target.chat_muted_until = null; target.chat_mute_reason = null; }
+    else if (input.action === "mute" && minutes > 0) { target.chat_muted_until = new Date(Date.now() + minutes * 60_000).toISOString(); target.chat_mute_reason = String(input.reason || "Modération du chat").slice(0, 200); }
+    else return json(res, 400, { message: "Action de modération invalide." });
+    target.updated_date = new Date().toISOString();
+    recordAdminAudit(db, user, input.action === "mute" ? "user_muted" : "user_unmuted", target, { minutes, reason: target.chat_mute_reason });
+    result = publicUser(target);
+  } else if (name === "resolveChatReport") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const report = (entities.ChatReport || []).find((item) => item.id === input.report_id);
+    if (!report) return json(res, 404, { message: "Signalement introuvable." });
+    report.status = input.status === "dismissed" ? "dismissed" : "resolved";
+    report.resolved_by = user.id; report.resolved_at = new Date().toISOString();
+    recordAdminAudit(db, user, "chat_report_resolved", db.users.find((candidate) => candidate.id === report.reported_user_id), { report_id: report.id, status: report.status });
+    result = report;
+  } else if (name === "getAdminPlayerActivity") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === input.user_id);
+    if (!target) return json(res, 404, { message: "Utilisateur introuvable." });
+    const activity = [
+      ...(entities.Transaction || []).filter((item) => item.created_by_id === target.id).map((item) => ({ id: item.id, type: "transaction", label: item.description || item.type || "Transaction", amount: item.amount, created_date: item.created_date })),
+      ...(entities.ChatMessage || []).filter((item) => item.created_by_id === target.id).map((item) => ({ id: item.id, type: "chat", label: item.message, created_date: item.created_date })),
+      ...(entities.PveBattle || []).filter((item) => item.created_by_id === target.id).map((item) => ({ id: item.id, type: "pve", label: `${item.victory ? "Victoire" : "Défaite"} contre ${item.boss_name}`, created_date: item.created_date })),
+      ...(entities.Auction || []).filter((item) => item.seller_id === target.id || item.highest_bidder_id === target.id).map((item) => ({ id: item.id, type: "auction", label: `Enchère ${item.card_name} · ${item.status}`, amount: item.current_bid, created_date: item.updated_date || item.created_date })),
+      ...(entities.MarketListing || []).filter((item) => item.seller_id === target.id || item.buyer_id === target.id).map((item) => ({ id: item.id, type: "market", label: `Marché ${item.card_name} · ${item.status}`, amount: item.price, created_date: item.updated_date || item.created_date })),
+      ...(entities.AdminAudit || []).filter((item) => item.target_user_id === target.id).map((item) => ({ id: item.id, type: "admin", label: item.action, created_date: item.created_date })),
+    ].filter((item) => item.created_date).sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, 200);
+    result = { user: publicUser(target), activity };
+  } else if (name === "getAdminSecurityOverview") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    const pendingReports = (entities.ChatReport || []).filter((item) => item.status === "pending");
+    const players = db.users.map((candidate) => {
+      const playerProfile = (entities.PlayerProfile || []).find((item) => item.created_by_id === candidate.id);
+      const transactions = (entities.Transaction || []).filter((item) => item.created_by_id === candidate.id && new Date(item.created_date).getTime() >= since);
+      const messages = (entities.ChatMessage || []).filter((item) => item.created_by_id === candidate.id && new Date(item.created_date).getTime() >= since);
+      const flags = [];
+      if (!playerProfile) flags.push("Profil manquant");
+      if (Number(playerProfile?.coins || 0) < 0 || Number(playerProfile?.gems || 0) < 0) flags.push("Solde négatif");
+      if (Number(playerProfile?.coins || 0) > 10_000_000) flags.push("Solde de pièces très élevé");
+      if (Number(playerProfile?.gems || 0) > 10_000) flags.push("Solde de gemmes très élevé");
+      if (transactions.length > 200) flags.push("Volume de transactions inhabituel");
+      if (messages.length > 150) flags.push("Activité chat très élevée");
+      const reports = pendingReports.filter((item) => item.reported_user_id === candidate.id).length;
+      if (reports >= 3) flags.push(`${reports} signalements en attente`);
+      return { id: candidate.id, email: candidate.email, name: candidate.full_name, role: candidate.role, status: candidate.status || "active", chat_muted_until: candidate.chat_muted_until || null, coins: Number(playerProfile?.coins || 0), gems: Number(playerProfile?.gems || 0), cards: (entities.Card || []).filter((item) => item.created_by_id === candidate.id).length, transactions_24h: transactions.length, messages_24h: messages.length, reports, flags, risk: flags.length >= 2 ? "high" : flags.length ? "medium" : "low" };
+    }).sort((a, b) => b.flags.length - a.flags.length || b.transactions_24h - a.transactions_24h);
+    result = { players, pending_reports: pendingReports.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, 100) };
+  } else if (name === "adminCleanupOrphanData") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const validUserIds = new Set(db.users.map((candidate) => candidate.id));
     const validEmails = new Set(db.users.map((candidate) => candidate.email));

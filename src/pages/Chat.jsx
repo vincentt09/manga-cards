@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, Send, Shield, Trash2, Users, X, Sparkles } from "lucide-react";
+import { MessageCircle, Send, Shield, Trash2, Users, X, Sparkles, Flag } from "lucide-react";
 import { appClient } from "@/api/appClient";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
@@ -49,6 +49,12 @@ export default function GeneralChatPanel({ onClose }) {
     mutationFn: (messageId) => appClient.entities.ChatMessage.delete(messageId),
     onSuccess: (_, messageId) => queryClient.setQueryData(["general_chat"], (current = []) => current.filter(item => item.id !== messageId)),
     onError: (error) => toast({ title: "Suppression impossible", description: error.message, variant: "destructive" }),
+  });
+
+  const reportMutation = useMutation({
+    mutationFn: (messageId) => appClient.functions.invoke("reportChatMessage", { message_id: messageId, reason: "contenu_inapproprie" }),
+    onSuccess: () => toast({ title: "Message signalé", description: "L’équipe de modération va l’examiner." }),
+    onError: (error) => toast({ title: "Signalement impossible", description: error.message, variant: "destructive" }),
   });
 
   const handleSubmit = (event) => {
@@ -115,6 +121,11 @@ export default function GeneralChatPanel({ onClose }) {
                       {canDelete && (
                         <button type="button" aria-label="Supprimer le message" onClick={() => deleteMutation.mutate(item.id)} className="absolute right-1.5 top-1.5 opacity-60 sm:opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1.5 rounded-full bg-black/20 hover:bg-destructive text-white">
                           <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                      {!isMine && user?.role !== "admin" && (
+                        <button type="button" aria-label="Signaler le message" disabled={reportMutation.isPending} onClick={() => reportMutation.mutate(item.id)} className="absolute right-1.5 top-1.5 opacity-60 sm:opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1.5 rounded-full bg-black/20 hover:bg-orange-500 text-white">
+                          <Flag className="w-3 h-3" />
                         </button>
                       )}
                     </div>
