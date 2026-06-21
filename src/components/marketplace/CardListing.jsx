@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { ShoppingBag, X, Zap, Shield, Wind, Star, Coins } from "lucide-react";
+import { Check, ShoppingBag, X, Zap, Shield, Wind, Star, Coins } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RARITY_CONFIG, RARITY_ORDER } from "@/lib/gameData";
 
@@ -47,6 +47,8 @@ export default function CardListing({ listing, onBuy, onCancel, isOwnListing, is
           <span className="text-[9px] font-bold text-white">{listing.card_level || 1}</span>
         </div>
 
+        {listing.is_system && <div className="absolute bottom-2 right-2 rounded-full border border-cyan-300/30 bg-cyan-500/85 px-2 py-1 text-[8px] font-black text-white">VENTE DU JEU</div>}
+
         {listing.card_variant === "awakened" && (
           <div className="absolute bottom-10 left-2 bg-yellow-500/80 rounded-full px-2 py-0.5 text-[8px] font-bold text-black">★ ÉVEILLÉE</div>
         )}
@@ -78,14 +80,14 @@ export default function CardListing({ listing, onBuy, onCancel, isOwnListing, is
               <X className="w-3 h-3 mr-1" />Retirer
             </Button>
           ) : (
-            <Button size="sm" onClick={() => onBuy(listing)} disabled={isBuying}
+            <Button size="sm" onClick={() => onBuy(listing)} disabled={isBuying || listing.purchased}
               className={`text-xs bg-gradient-to-r ${RARITY_CONFIG[listing.card_rarity]?.gradient || "from-primary to-accent"} border-0 text-white`}>
-              {isBuying ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ShoppingBag className="w-3 h-3 mr-1" />Acheter</>}
+              {isBuying ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : listing.purchased ? <><Check className="w-3 h-3 mr-1" />Achetée</> : <><ShoppingBag className="w-3 h-3 mr-1" />Acheter</>}
             </Button>
           )}
         </div>
 
-        <p className="text-[9px] text-muted-foreground mt-2">Par {listing.seller_name || "Inconnu"}</p>
+        <p className={`text-[9px] mt-2 ${listing.is_system ? "font-semibold text-cyan-400" : "text-muted-foreground"}`}>Par {listing.seller_name || "Inconnu"}</p>
       </div>
     </motion.div>
   );

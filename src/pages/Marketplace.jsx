@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { appClient } from "@/api/appClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShoppingBag, Tag, Search, Filter, X, Plus, AlertCircle } from "lucide-react";
+import { ShoppingBag, Tag, Search, Filter, X, Plus, AlertCircle, Clock3, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -23,6 +23,7 @@ export default function Marketplace() {
   const [showSellModal, setShowSellModal] = useState(false);
   const [buyingId, setBuyingId] = useState(null);
   const [isListing, setIsListing] = useState(false);
+  const [now, setNow] = useState(Date.now());
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -37,6 +38,12 @@ export default function Marketplace() {
     queryKey: ["frame-listings"],
     queryFn: () => appClient.entities.FrameListing.filter({ status: "active" }, "-created_date", 50),
     refetchInterval: 15000,
+  });
+
+  const { data: systemMarketResponse } = useQuery({
+    queryKey: ["system-market"],
+    queryFn: () => appClient.functions.invoke("getSystemMarket"),
+    refetchInterval: 60_000,
   });
 
   const { data: profiles = [] } = useQuery({
@@ -55,6 +62,12 @@ export default function Marketplace() {
   });
 
   const profile = profiles[0];
+  const systemMarket = systemMarketResponse?.data;
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const rotationSeconds = systemMarket?.nextRotationAt ? Math.max(0, Math.ceil((new Date(systemMarket.nextRotationAt).getTime() - now) / 1000)) : 0;
   const myCardListings = cardListings.filter(l => l.seller_id === user?.id);
   const otherCardListings = cardListings.filter(l => l.seller_id !== user?.id);
   const myFrameListings = frameListings.filter(l => l.seller_id === user?.id);
@@ -115,6 +128,29 @@ export default function Marketplace() {
         queryClient.invalidateQueries({ queryKey: ["myFrames"] }),
       ]);
       toast({ title: `✅ ${listing.frame_name} acheté !`, description: `−${listing.price.toLocaleString()} pièces · taxe marché ${response.data.tax.toLocaleString()}` });
+    } catch (error) {
+      toast({ title: "Achat impossible", description: error.message, variant: "destructive" });
+    } finally {
+      setBuyingId(null);
+    }
+  };
+
+  const handleBuySystemCard = async (offer) => {
+    if (!profile || buyingId) return;
+    if (Number(profile.coins || 0) < Number(offer.price || 0)) {
+      toast({ title: "Pièces insuffisantes", description: `Il te faut ${offer.price.toLocaleString()} pièces.`, variant: "destructive" });
+      return;
+    }
+    setBuyingId(offer.id);
+    try {
+      await appClient.functions.invoke("buySystemMarketCard", { offer_id: offer.id });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["system-market"] }),
+        queryClient.invalidateQueries({ queryKey: ["profile"] }),
+        queryClient.invalidateQueries({ queryKey: ["cards"] }),
+        queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+      ]);
+      toast({ title: `✨ ${offer.card_name} achetée au jeu !`, description: `−${offer.price.toLocaleString()} pièces` });
     } catch (error) {
       toast({ title: "Achat impossible", description: error.message, variant: "destructive" });
     } finally {
@@ -212,6 +248,25 @@ export default function Marketplace() {
             ))}
           </div>
         </div>
+
+        {marketTab === "cards" && tab === "browse" && systemMarket?.offers?.length > 0 && (
+          <section className="mb-6 overflow-hidden rounded-3xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/35 via-card to-primary/10 p-4 sm:p-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-cyan-400"><Sparkles className="h-3.5 w-3.5" />Sélection officielle</p>
+                <h2 className="mt-1 font-display text-xl font-bold">Ventes du jeu</h2>
+                <p className="text-xs text-muted-foreground">5 cartes choisies aléatoirement. Chaque offre est achetable une fois par rotation.</p>
+              </div>
+              <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-right">
+                <p className="flex items-center gap-1 text-[10px] text-cyan-300"><Clock3 className="h-3 w-3" />Nouvelles cartes dans</p>
+                <p className="font-display text-lg font-bold text-cyan-200">{String(Math.floor(rotationSeconds / 60)).padStart(2, "0")}:{String(rotationSeconds % 60).padStart(2, "0")}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+              {systemMarket.offers.map((offer) => <CardListing key={offer.id} listing={offer} onBuy={handleBuySystemCard} isOwnListing={false} isBuying={buyingId === offer.id} imageOverrides={imageOverrides} />)}
+            </div>
+          </section>
+        )}
 
         <div className="flex gap-2 mb-5">
           <div className="relative flex-1">

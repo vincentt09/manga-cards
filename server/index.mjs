@@ -357,6 +357,47 @@ const resolvedCard = (db, card) => {
     image_url: override?.image_url || definition?.image_url || card.image_url || null,
   };
 };
+const getSystemMarketOffers = (db, date = new Date()) => {
+  const hourStart = new Date(date);
+  hourStart.setUTCMinutes(0, 0, 0);
+  const hourKey = hourStart.toISOString().slice(0, 13);
+  const nextRotationAt = new Date(hourStart.getTime() + 3_600_000).toISOString();
+  const basePrices = { normale: 900, legendaire: 18_000, "secrète": 85_000, manga_god: 450_000 };
+  const ranked = (db.entities.CardDefinition || [])
+    .filter((card) => card.is_active !== false)
+    .map((card) => ({ card, rank: crypto.createHash("sha256").update(`${hourKey}:${card.id}`).digest("hex") }))
+    .sort((a, b) => a.rank.localeCompare(b.rank));
+  const selected = [];
+  const characters = new Set();
+  for (const entry of ranked) {
+    if (characters.has(entry.card.name)) continue;
+    characters.add(entry.card.name);
+    selected.push(entry);
+    if (selected.length === 5) break;
+  }
+  const offers = selected.map(({ card, rank }) => {
+    const priceVariation = 0.90 + (parseInt(rank.slice(0, 4), 16) % 21) / 100;
+    const resolved = resolvedCard(db, { ...card, card_definition_id: card.id });
+    return {
+      id: `system:${hourKey}:${card.id}`,
+      card_definition_id: card.id,
+      card_name: card.name,
+      card_anime: card.anime,
+      card_rarity: card.rarity,
+      card_power: Number(card.basePower || card.power || 1),
+      card_attack: Number(card.baseAttack || card.attack || 1),
+      card_defense: Number(card.baseDefense || card.defense || 1),
+      card_speed: Number(card.baseSpeed || card.speed || 1),
+      card_level: 1,
+      card_image_url: resolved.image_url,
+      price: Math.max(1, Math.round(Number(basePrices[card.rarity] || 900) * priceVariation / 100) * 100),
+      seller_id: "system",
+      seller_name: "Boutique du jeu",
+      is_system: true,
+    };
+  });
+  return { hourKey, nextRotationAt, offers };
+};
 const seedProfile = (db, user) => {
   db.entities.PlayerProfile ||= [];
   db.entities.PlayerProfile.push({
@@ -656,7 +697,53 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "getPveState") {
+  if (name === "getSystemMarket") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const market = getSystemMarketOffers(db);
+    const purchases = new Set(Array.isArray(profile.system_market_purchases) ? profile.system_market_purchases : []);
+    result = { ...market, offers: market.offers.map((offer) => ({ ...offer, purchased: purchases.has(offer.id) })) };
+  } else if (name === "buySystemMarketCard") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const market = getSystemMarketOffers(db);
+    const offer = market.offers.find((candidate) => candidate.id === input.offer_id);
+    if (!offer) return json(res, 409, { message: "Cette sélection horaire a changé. Actualise le marché." });
+    const purchases = Array.isArray(profile.system_market_purchases) ? profile.system_market_purchases : [];
+    if (purchases.includes(offer.id)) return json(res, 409, { message: "Tu as déjà acheté cette offre pendant cette rotation." });
+    if (Number(profile.coins || 0) < offer.price) return json(res, 400, { message: "Pièces insuffisantes." });
+    const definition = (entities.CardDefinition || []).find((card) => card.id === offer.card_definition_id && card.is_active !== false);
+    if (!definition) return json(res, 409, { message: "Cette carte n’est plus disponible." });
+    const now = new Date().toISOString();
+    entities.Card ||= [];
+    let card = entities.Card.find((candidate) => candidate.created_by_id === user.id && candidate.card_definition_id === definition.id);
+    if (card) {
+      card.duplicates = Number(card.duplicates || 1) + 1;
+      card.upgrade_progress = Number(card.upgrade_progress || 0) + 1;
+      while (Number(card.level || 1) < 100 && card.upgrade_progress >= getDuplicatesForUpgrade(Number(card.level || 1))) {
+        card.upgrade_progress -= getDuplicatesForUpgrade(Number(card.level || 1));
+        card.level = Number(card.level || 1) + 1;
+        card.power = Number(card.power || 0) + 3;
+        card.attack = Number(card.attack || 0) + 2;
+        card.defense = Number(card.defense || 0) + 2;
+        card.speed = Number(card.speed || 0) + 1;
+      }
+      card.updated_date = now;
+    } else {
+      card = {
+        id: id(), card_definition_id: definition.id, name: definition.name, anime: definition.anime, rarity: definition.rarity,
+        power: definition.basePower, attack: definition.baseAttack, defense: definition.baseDefense, speed: definition.baseSpeed,
+        image_url: definition.image_url || null, collection_id: definition.collection_id || null, edition: definition.edition || "standard",
+        is_collector: Boolean(definition.is_collector), level: 1, duplicates: 1, upgrade_progress: 0, is_favorite: false,
+        created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now,
+      };
+      entities.Card.push(card);
+    }
+    profile.coins = Number(profile.coins || 0) - offer.price;
+    profile.system_market_purchases = [...purchases.slice(-95), offer.id];
+    profile.updated_date = now;
+    entities.Transaction ||= [];
+    entities.Transaction.push({ id: id(), type: "system_market", description: `Boutique horaire : ${offer.card_name}`, amount: -offer.price, card_name: offer.card_name, card_rarity: offer.card_rarity, created_by_id: user.id, created_by: user.email, created_date: now });
+    result = { offer: { ...offer, purchased: true }, card: resolvedCard(db, card), coins: profile.coins };
+  } else if (name === "getPveState") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     const energy = refreshPveEnergy(profile);
     const deckIds = Array.isArray(profile.pve_deck_ids) ? profile.pve_deck_ids : [];
