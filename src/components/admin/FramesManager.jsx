@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Frame, Plus, Trash2, Upload } from "lucide-react";
+import { Frame, Plus, Trash2, Upload, RefreshCw } from "lucide-react";
 import { appClient } from "@/api/appClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,8 @@ export default function FramesManager() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: frames = [] } = useQuery({ queryKey: ["admin_frames"], queryFn: () => appClient.entities.CardFrame.list("-created_date") });
+  const { data: framesResponse, isFetching: framesRefreshing, refetch: refetchFrames } = useQuery({ queryKey: ["admin_frames"], queryFn: () => appClient.functions.invoke("getAdminFrames"), refetchOnMount: "always" });
+  const frames = framesResponse?.data || [];
   const { data: events = [] } = useQuery({ queryKey: ["drop_events"], queryFn: () => appClient.entities.DropEvent.list("-created_date") });
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -61,7 +62,7 @@ export default function FramesManager() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div><h3 className="font-heading font-bold uppercase text-sm">Gestion des cadres</h3><p className="text-xs text-muted-foreground">PNG transparent 2:3 · prix en jeu ou prix réel</p></div>
-        <Button onClick={() => setShowForm((value) => !value)}><Plus className="w-4 h-4 mr-2" />Nouveau cadre</Button>
+        <div className="flex gap-2"><Button size="icon" variant="outline" aria-label="Actualiser les cadres" disabled={framesRefreshing} onClick={() => refetchFrames()}><RefreshCw className={`h-4 w-4 ${framesRefreshing ? "animate-spin" : ""}`} /></Button><Button onClick={() => setShowForm((value) => !value)}><Plus className="w-4 h-4 mr-2" />Nouveau cadre</Button></div>
       </div>
 
       {showForm && (

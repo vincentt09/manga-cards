@@ -73,6 +73,25 @@ const baseFrameCatalog = [{
   price_gems: 500,
   requirements: { min_level: 75, manga_god_cards: 10, level_100_cards: 1 },
 }];
+const ensureBaseFrameCatalog = (entities) => {
+  entities.CardFrame ||= [];
+  let changed = false;
+  for (const baseFrame of baseFrameCatalog) {
+    const existing = entities.CardFrame.find((frame) => frame.id === baseFrame.id);
+    if (!existing) {
+      const now = new Date().toISOString();
+      entities.CardFrame.push({ ...baseFrame, created_date: now, updated_date: now });
+      changed = true;
+      continue;
+    }
+    const merged = { ...baseFrame, ...existing, id: baseFrame.id, is_endgame: true };
+    if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+      Object.assign(existing, merged, { updated_date: new Date().toISOString() });
+      changed = true;
+    }
+  }
+  return changed;
+};
 const FUSION_RECIPES = {
   normale: { count: 5, copiesEach: 5, result: "legendaire", cost: 50_000, minLevel: 10, xp: 1_000 },
   legendaire: { count: 5, copiesEach: 3, result: "secrète", cost: 250_000, minLevel: 15, xp: 5_000 },
@@ -291,21 +310,7 @@ const readDb = async () => {
     db.entities.CardDefinition.push(...missingDefinitions);
     await remote.collection(entityCollectionName("CardDefinition")).insertMany(missingDefinitions);
   }
-  db.entities.CardFrame ||= [];
-  const frameIds = new Set(db.entities.CardFrame.map((frame) => frame.id));
-  const missingFrames = baseFrameCatalog.filter((frame) => !frameIds.has(frame.id));
-  if (missingFrames.length) {
-    db.entities.CardFrame.push(...missingFrames);
-    await remote.collection(entityCollectionName("CardFrame")).insertMany(missingFrames);
-  }
-  let framesChanged = false;
-  for (const baseFrame of baseFrameCatalog) {
-    const existingFrame = db.entities.CardFrame.find((frame) => frame.id === baseFrame.id);
-    if (existingFrame && JSON.stringify(existingFrame) !== JSON.stringify({ ...existingFrame, ...baseFrame })) {
-      Object.assign(existingFrame, baseFrame);
-      framesChanged = true;
-    }
-  }
+  const framesChanged = ensureBaseFrameCatalog(db.entities);
   if (framesChanged) await syncMongoCollection(remote.collection(entityCollectionName("CardFrame")), db.entities.CardFrame);
   dbCache = db;
   await ensureDailyBackup(dbCache).catch((error) => console.error("Sauvegarde automatique impossible :", error.message));
@@ -762,7 +767,11 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "getAdminBackups") {
+  if (name === "getAdminFrames") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    ensureBaseFrameCatalog(entities);
+    result = [...(entities.CardFrame || [])].sort((a, b) => Number(b.is_endgame) - Number(a.is_endgame) || String(a.name).localeCompare(String(b.name), "fr"));
+  } else if (name === "getAdminBackups") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     result = await listDatabaseBackups();
   } else if (name === "createAdminBackup") {
