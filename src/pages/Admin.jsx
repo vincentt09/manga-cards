@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Users, Image as ImageIcon, BarChart3, Coins, Package, Layers,
-  Search, Crown, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList, LockKeyhole
+  Search, Crown, Trophy, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList, LockKeyhole
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ import AnimeCollectionsManager from "@/components/admin/AnimeCollectionsManager"
 import DropEventsManager from "@/components/admin/DropEventsManager";
 import FramesManager from "@/components/admin/FramesManager";
 import AdminSecurityCenter from "@/components/admin/AdminSecurityCenter";
+import TitlesManager from "@/components/admin/TitlesManager";
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 const TABS = [
@@ -34,6 +35,7 @@ const TABS = [
   { id: "collections", label: "Collections",  icon: Package },
   { id: "events",    label: "Événements",     icon: Zap },
   { id: "frames",    label: "Cadres",         icon: Crown },
+  { id: "titles",    label: "Titres",         icon: Trophy },
   { id: "economy",   label: "Économie",       icon: Coins },
   { id: "audit",     label: "Journal",        icon: ClipboardList },
   { id: "security",  label: "Sécurité",       icon: LockKeyhole },
@@ -552,6 +554,7 @@ export default function Admin() {
             {tab === "collections" && <AnimeCollectionsManager />}
             {tab === "events"   && <DropEventsManager />}
             {tab === "frames"   && <FramesManager />}
+            {tab === "titles"   && <TitlesManager />}
             {tab === "economy"  && <EconomyTab profiles={profiles} onGiveCoinsAll={handleGiveCoinsAll} onGiveGemsAll={handleGiveGemsAll} />}
             {tab === "audit"    && <AuditLog entries={auditEntries} />}
             {tab === "security" && <AdminSecurityCenter />}

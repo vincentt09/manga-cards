@@ -7,9 +7,9 @@ import Navbar from "@/components/game/Navbar";
 import CurrencyBar from "@/components/game/CurrencyBar";
 import { PROFILE_TITLES } from "@/lib/achievements";
 
-const getTitle = (titleId) => PROFILE_TITLES.find((title) => title.id === titleId)?.label || PROFILE_TITLES[0].label;
+const getTitle = (titleId, customTitles = []) => PROFILE_TITLES.find((title) => title.id === titleId)?.label || customTitles.find(title => title.is_active !== false && `custom_${title.id}` === titleId)?.label || PROFILE_TITLES[0].label;
 
-function LeaderboardRow({ player, rank }) {
+function LeaderboardRow({ player, rank, customTitles }) {
   const isCurrentUser = player.isCurrentUser;
   
   const getRankIcon = (rank) => {
@@ -59,7 +59,7 @@ function LeaderboardRow({ player, rank }) {
           <span>{player.collectionSize} cartes</span>
           <span>Puissance : {player.collectionPower.toLocaleString()}</span>
         </div>
-        <p className="mt-1 text-[10px] font-semibold text-yellow-300">♛ {getTitle(player.titleId)}</p>
+        <p className="mt-1 text-[10px] font-semibold text-yellow-300">♛ {getTitle(player.titleId, customTitles)}</p>
       </div>
 
       <div className="text-right shrink-0">
@@ -87,7 +87,7 @@ function StatBox({ label, value, icon: Icon, color }) {
   );
 }
 
-function PodiumCard({ player, rank }) {
+function PodiumCard({ player, rank, customTitles }) {
   const colors = {
     1: "from-yellow-500/20 to-amber-500/20 border-yellow-500/40",
     2: "from-slate-500/20 to-slate-400/20 border-slate-500/40",
@@ -107,7 +107,7 @@ function PodiumCard({ player, rank }) {
         <Crown className={`mx-auto mb-1 h-5 w-5 sm:h-6 sm:w-6 ${crownColors[rank]}`} />
         <p className="max-w-[88px] truncate text-[11px] font-semibold sm:max-w-[120px] sm:text-sm">{player.name}</p>
         <p className="text-[9px] text-muted-foreground sm:text-xs">Niv. {player.level}</p>
-        <p className="hidden max-w-[120px] truncate text-[9px] font-semibold text-yellow-300 sm:block">{getTitle(player.titleId)}</p>
+        <p className="hidden max-w-[120px] truncate text-[9px] font-semibold text-yellow-300 sm:block">{getTitle(player.titleId, customTitles)}</p>
       </div>
       <div className="flex items-center gap-1.5 mb-2">
         <Trophy className={`w-4 h-4 ${crownColors[rank]}`} />
@@ -127,6 +127,7 @@ function PodiumCard({ player, rank }) {
 }
 
 export default function Leaderboard() {
+  const { data: customTitles = [] } = useQuery({ queryKey: ["public_titles"], queryFn: () => appClient.entities.TitleDefinition.list("requirement_value") });
   const { data: leaderboardResponse, isLoading } = useQuery({
     queryKey: ["leaderboard"],
     queryFn: () => appClient.functions.invoke("getLeaderboard"),
@@ -157,9 +158,9 @@ export default function Leaderboard() {
           <div className="mb-8">
             <h2 className="font-heading font-bold text-sm uppercase mb-4 text-center">🏆 Podium</h2>
             <div className="grid grid-cols-3 gap-2 sm:gap-4">
-              {top3[1] && <PodiumCard player={top3[1]} rank={2} />}
-              {top3[0] && <PodiumCard player={top3[0]} rank={1} />}
-              {top3[2] && <PodiumCard player={top3[2]} rank={3} />}
+              {top3[1] && <PodiumCard player={top3[1]} rank={2} customTitles={customTitles} />}
+              {top3[0] && <PodiumCard player={top3[0]} rank={1} customTitles={customTitles} />}
+              {top3[2] && <PodiumCard player={top3[2]} rank={3} customTitles={customTitles} />}
             </div>
           </div>
         )}
@@ -167,7 +168,7 @@ export default function Leaderboard() {
         <div className="space-y-3">
           <h2 className="font-heading font-bold text-sm uppercase mb-4">Classement Complet</h2>
           {rest.map((player) => (
-            <LeaderboardRow key={player.id} player={player} rank={player.rank} />
+            <LeaderboardRow key={player.id} player={player} rank={player.rank} customTitles={customTitles} />
           ))}
         </div>
 

@@ -50,6 +50,7 @@ export default function Profile() {
     queryKey: ["transactions"],
     queryFn: () => appClient.entities.Transaction.list("-created_date", 500),
   });
+  const { data: titleCatalogResponse } = useQuery({ queryKey: ["title_catalog"], queryFn: () => appClient.functions.invoke("getTitleCatalog") });
 
   const profile = profiles[0];
   const bannerGradient = BANNER_COLORS.find(banner => banner.id === profile?.banner_id)?.gradient || BANNER_COLORS[0].gradient;
@@ -81,15 +82,18 @@ export default function Profile() {
 
   const achievementData = getAchievementData({ cards, profile, playerLevel: levelInfo.level, transactions });
   const achievements = ACHIEVEMENTS.map(a => ({ ...a, done: a.check(achievementData) }));
+  const customTitles = titleCatalogResponse?.data || [];
   const unlockedCount = achievements.filter(a => a.done).length;
   const unlockedTitleIds = new Set([
     "rookie",
     ...achievements.filter((achievement) => achievement.done).map((achievement) => `achievement_${achievement.id}`),
+    ...customTitles.filter(title => title.unlocked).map(title => `custom_${title.id}`),
   ]);
-  const equippedTitle = PROFILE_TITLES.find((title) => title.id === profile?.equipped_title_id && unlockedTitleIds.has(title.id)) || PROFILE_TITLES[0];
+  const allTitles = [...PROFILE_TITLES, ...customTitles.map(title => ({ id: `custom_${title.id}`, label: title.label }))];
+  const equippedTitle = allTitles.find((title) => title.id === profile?.equipped_title_id && unlockedTitleIds.has(title.id)) || PROFILE_TITLES[0];
 
   const titleMutation = useMutation({
-    mutationFn: (titleId) => appClient.entities.PlayerProfile.update(profile.id, { equipped_title_id: titleId }),
+    mutationFn: (titleId) => appClient.functions.invoke("equipTitle", { title_id: titleId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["profile"] });
       toast({ title: "Titre équipé", description: "Ton nouveau titre est maintenant visible sur ton profil." });
@@ -279,6 +283,17 @@ export default function Profile() {
               );
             })}
           </div>
+          {customTitles.length > 0 && <>
+            <div className="my-4 border-t border-border" />
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-yellow-300">Titres spéciaux créés par l’administration</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{customTitles.map(title => {
+              const titleId = `custom_${title.id}`;
+              const percent = Math.min(100, Math.round(Number(title.progress || 0) / Math.max(1, Number(title.required || 1)) * 100));
+              return <div key={title.id} className={`rounded-xl border p-3 ${title.unlocked ? "border-yellow-500/25 bg-yellow-500/5" : "border-border/40 bg-secondary/20 opacity-65"}`}>
+                <div className="flex items-start gap-3"><span className="text-2xl">{title.icon || "👑"}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{title.label}</p><p className="text-[10px] text-muted-foreground">{title.description}</p><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-gradient-to-r from-yellow-500 to-orange-400" style={{ width: `${percent}%` }} /></div><p className="mt-1 text-[9px] text-muted-foreground">{Number(title.progress || 0).toLocaleString()} / {Number(title.required || 1).toLocaleString()}</p></div>{title.unlocked && <Button size="sm" variant={equippedTitle.id === titleId ? "default" : "outline"} className="h-7 shrink-0 px-2 text-[10px]" disabled={titleMutation.isPending || equippedTitle.id === titleId} onClick={() => titleMutation.mutate(titleId)}>{equippedTitle.id === titleId ? "Équipé" : "Équiper"}</Button>}</div>
+              </div>;
+            })}</div>
+          </>}
         </div>
 
         {/* Quick links */}

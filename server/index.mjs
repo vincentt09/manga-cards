@@ -9,7 +9,7 @@ import { BOOSTER_TYPES, CARD_POOL, getCoinReward, getDuplicatesForUpgrade, getLe
 import { getTalent } from "../src/lib/talentData.js";
 import { LEVEL_REWARDS } from "../src/lib/levelRewards.js";
 import { DAILY_QUESTS_POOL, WEEKLY_QUESTS_POOL } from "../src/lib/questData.js";
-import { PVE_BOSSES, PVE_ENERGY_REGEN_MS, PVE_MAX_ENERGY } from "../src/lib/pveData.js";
+import { PVE_BOSSES, PVE_DAILY_REPLAY_LIMIT, PVE_ENERGY_REGEN_MS, PVE_MAX_ENERGY } from "../src/lib/pveData.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envFile = path.join(root, ".env");
@@ -206,6 +206,44 @@ const refreshPveEnergy = (profile) => {
     maxEnergy: PVE_MAX_ENERGY,
     nextEnergyAt: energy >= PVE_MAX_ENERGY ? null : new Date(new Date(profile.pve_energy_updated_at).getTime() + PVE_ENERGY_REGEN_MS).toISOString(),
   };
+};
+const TITLE_REQUIREMENTS = {
+  cards_10: ["cards_owned", 10], cards_50: ["cards_owned", 50], cards_100: ["cards_owned", 100], cards_250: ["cards_owned", 250],
+  rare_5: ["legendary_cards", 5], rare_25: ["legendary_cards", 25], epic_3: ["secret_cards", 3], epic_15: ["secret_cards", 15],
+  legendary_1: ["manga_god_cards", 1], legendary_5: ["manga_god_cards", 5], legendary_15: ["manga_god_cards", 15], secret_1: ["all_rarities", 1],
+  level5: ["card_level", 5], level10: ["card_level", 10], level25: ["card_level", 25], level50_card: ["card_level", 50], level100_card: ["card_level", 100],
+  boosters_10: ["boosters_opened", 10], boosters_50: ["boosters_opened", 50], boosters_100: ["boosters_opened", 100], boosters_500: ["boosters_opened", 500],
+  sell_1: ["cards_sold", 1], sell_10: ["cards_sold", 10], sell_50: ["cards_sold", 50],
+  level_10: ["player_level", 10], level_25: ["player_level", 25], level_50: ["player_level", 50], level_75: ["player_level", 75], level_100: ["player_level", 100],
+  gems_50: ["gems", 50], gems_250: ["gems", 250], fav_5: ["favorites", 5],
+  pve_1: ["pve_wins", 1], pve_25: ["pve_wins", 25], pve_100: ["pve_wins", 100],
+  pve_stage_4: ["pve_stage", 5], pve_stage_8: ["pve_stage", 9], pve_stage_12: ["pve_cleared_stage", 12],
+};
+const CUSTOM_TITLE_REQUIREMENT_TYPES = new Set(["player_level", "cards_owned", "boosters_opened", "card_level", "legendary_cards", "secret_cards", "manga_god_cards", "pve_wins", "pve_stage", "cards_sold", "coins", "gems", "favorites"]);
+const titleProgress = (entities, profile, userId, type) => {
+  const cards = (entities.Card || []).filter(card => card.created_by_id === userId);
+  const rarity = value => cards.filter(card => card.rarity === value).length;
+  const values = {
+    cards_owned: cards.length,
+    legendary_cards: rarity("legendaire"),
+    secret_cards: rarity("secrète"),
+    manga_god_cards: rarity("manga_god"),
+    all_rarities: ["normale", "legendaire", "secrète", "manga_god"].every(value => rarity(value) > 0) ? 1 : 0,
+    card_level: cards.reduce((max, card) => Math.max(max, Number(card.level || 1)), 0),
+    boosters_opened: Number(profile?.boosters_opened || 0),
+    cards_sold: (entities.Transaction || []).filter(row => row.created_by_id === userId && row.type === "sell").length,
+    player_level: getLevelFromXp(Number(profile?.xp || 0)).level,
+    coins: Number(profile?.coins || 0), gems: Number(profile?.gems || 0),
+    favorites: cards.filter(card => card.is_favorite).length,
+    pve_wins: Number(profile?.pve_wins || 0), pve_stage: Number(profile?.pve_max_stage || 1),
+  };
+  if (type === "pve_cleared_stage") return Math.max(0, ...(profile?.pve_cleared_stages || []));
+  return Number(values[type] || 0);
+};
+const customTitleState = (entities, profile, userId, definition) => {
+  const required = Math.max(1, Number(definition.requirement_value || 1));
+  const progress = titleProgress(entities, profile, userId, definition.requirement_type);
+  return { ...definition, progress, required, unlocked: progress >= required };
 };
 const weekKey = (date = new Date()) => {
   const value = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -725,7 +763,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   }
   db.entities[name] ||= []; const rows = db.entities[name];
   const privateEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization"]);
-  const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats"]);
+  const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats", "TitleDefinition"]);
   const collaborativeEntities = new Set();
   const canAccess = (row) => user.role === "admin" || !privateEntities.has(name) || row.created_by_id === user.id;
   const canWrite = (row) => user.role === "admin" || collaborativeEntities.has(name) || row.created_by_id === user.id;
@@ -759,6 +797,12 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     if (name === "Auction" && user.role !== "admin") return json(res, 403, { message: "Utilise la création d’enchère sécurisée." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
+    if (name === "TitleDefinition") {
+      input.label = String(input.label || "").replace(/\s+/g, " ").trim().slice(0, 50);
+      input.description = String(input.description || "").trim().slice(0, 140);
+      input.requirement_value = Math.max(1, Math.floor(Number(input.requirement_value || 1)));
+      if (input.label.length < 2 || !CUSTOM_TITLE_REQUIREMENT_TYPES.has(input.requirement_type)) return json(res, 400, { message: "Titre ou condition invalide." });
+    }
     if (name === "AnimeCollection") {
       const duplicate = rows.some((row) => String(row.name || "").trim().toLocaleLowerCase("fr") === String(input.name || "").trim().toLocaleLowerCase("fr") && String(row.anime || "").trim().toLocaleLowerCase("fr") === String(input.anime || "").trim().toLocaleLowerCase("fr"));
       if (duplicate) return json(res, 409, { message: "Une collection identique existe déjà. Modifie la collection existante." });
@@ -778,11 +822,17 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   if (req.method === "PUT") {
     if (!canWrite(item)) return json(res, 403, { message: "Modification interdite." });
     const input = await body(req); delete input.id; delete input.created_by_id; delete input.created_by; delete input.created_date;
+    if (name === "TitleDefinition") {
+      if ("label" in input) input.label = String(input.label || "").replace(/\s+/g, " ").trim().slice(0, 50);
+      if ("description" in input) input.description = String(input.description || "").trim().slice(0, 140);
+      if ("requirement_value" in input) input.requirement_value = Math.max(1, Math.floor(Number(input.requirement_value || 1)));
+      if (("label" in input && input.label.length < 2) || ("requirement_type" in input && !CUSTOM_TITLE_REQUIREMENT_TYPES.has(input.requirement_type))) return json(res, 400, { message: "Titre ou condition invalide." });
+    }
     if (["AnimeCollection", "CardDefinition"].includes(name) && input.anime) input.anime = canonicalAnimeName(input.anime);
     if (name === "AnimeCollection" && rows.some((row) => row.id !== item.id && String(row.name || "").trim().toLocaleLowerCase("fr") === String(input.name ?? item.name ?? "").trim().toLocaleLowerCase("fr") && String(row.anime || "").trim().toLocaleLowerCase("fr") === String(input.anime ?? item.anime ?? "").trim().toLocaleLowerCase("fr"))) return json(res, 409, { message: "Une collection identique existe déjà." });
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Modification de talent interdite." });
     if (name === "Auction" && user.role !== "admin") return json(res, 403, { message: "Utilise le système d’enchère sécurisé." });
-    if (name === "PlayerProfile" && user.role !== "admin") { delete input.talent_points; delete input.claimed_rewards; }
+    if (name === "PlayerProfile" && user.role !== "admin") { delete input.talent_points; delete input.claimed_rewards; delete input.equipped_title_id; }
     if (name === "Quest" && user.role !== "admin") {
       delete input.claimed;
       delete input.claimed_at;
@@ -808,7 +858,33 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "getAdminCollections") {
+  if (name === "getTitleCatalog") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    result = (entities.TitleDefinition || [])
+      .filter(title => title.is_active !== false)
+      .map(title => customTitleState(entities, profile, user.id, title))
+      .sort((a, b) => Number(a.required) - Number(b.required) || String(a.label).localeCompare(String(b.label), "fr"));
+  } else if (name === "equipTitle") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const titleId = String(input.title_id || "rookie");
+    let label = "Nouveau Collectionneur";
+    let unlocked = titleId === "rookie";
+    if (titleId.startsWith("achievement_")) {
+      const requirement = TITLE_REQUIREMENTS[titleId.slice(12)];
+      if (requirement) unlocked = titleProgress(entities, profile, user.id, requirement[0]) >= requirement[1];
+    } else if (titleId.startsWith("custom_")) {
+      const definition = (entities.TitleDefinition || []).find(title => `custom_${title.id}` === titleId && title.is_active !== false);
+      if (definition) {
+        const state = customTitleState(entities, profile, user.id, definition);
+        unlocked = state.unlocked;
+        label = definition.label;
+      }
+    }
+    if (!unlocked) return json(res, 403, { message: "Ce titre n'est pas encore débloqué." });
+    profile.equipped_title_id = titleId;
+    profile.updated_date = new Date().toISOString();
+    result = { title_id: titleId, label };
+  } else if (name === "getAdminCollections") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     let normalizedAnimeNames = 0;
     for (const row of [...(entities.AnimeCollection || []), ...(entities.CardDefinition || [])]) {
@@ -1049,6 +1125,10 @@ async function runFunction(req, res, name, db, user) {
       clearedStages: Array.isArray(profile.pve_cleared_stages) ? profile.pve_cleared_stages : [],
       wins: Number(profile.pve_wins || 0),
       losses: Number(profile.pve_losses || 0),
+      stars: profile.pve_stage_stars || {},
+      dailyWins: profile.pve_daily_key === new Date().toISOString().slice(0, 10) ? (profile.pve_daily_wins || {}) : {},
+      dailyReplayLimit: PVE_DAILY_REPLAY_LIMIT,
+      lossStreak: Number(profile.pve_loss_streak || 0),
     };
   } else if (name === "setPveDeck") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
@@ -1066,28 +1146,45 @@ async function runFunction(req, res, name, db, user) {
     const maxStage = Math.max(1, Number(profile.pve_max_stage || 1));
     if (boss.stage > maxStage) return json(res, 403, { message: "Ce palier n’est pas encore débloqué." });
     const energyState = refreshPveEnergy(profile);
-    if (energyState.energy < 1) return json(res, 429, { message: "Plus d’énergie. Une énergie revient toutes les 30 minutes." });
+    const energyCost = Math.max(1, Number(boss.energyCost || 1));
+    if (energyState.energy < energyCost) return json(res, 429, { message: `Il faut ${energyCost} énergies. Une énergie revient toutes les 20 minutes.` });
     const deckIds = Array.isArray(profile.pve_deck_ids) ? profile.pve_deck_ids : [];
     const deck = deckIds.map((cardId) => (entities.Card || []).find((card) => card.id === cardId && card.created_by_id === user.id)).filter(Boolean);
     if (!deck.length) return json(res, 400, { message: "Compose d’abord ton équipe PvE." });
-    profile.pve_energy = energyState.energy - 1;
-    profile.pve_energy_updated_at = new Date().toISOString();
+    const dayKey = new Date().toISOString().slice(0, 10);
+    if (profile.pve_daily_key !== dayKey) { profile.pve_daily_key = dayKey; profile.pve_daily_wins = {}; }
+    const clearedStages = Array.isArray(profile.pve_cleared_stages) ? profile.pve_cleared_stages : [];
+    const alreadyCleared = clearedStages.includes(boss.stage);
+    const dailyWins = Number(profile.pve_daily_wins?.[boss.id] || 0);
+    if (alreadyCleared && dailyWins >= PVE_DAILY_REPLAY_LIMIT) return json(res, 429, { message: `Limite atteinte : ${PVE_DAILY_REPLAY_LIMIT} victoires récompensées par boss et par jour.` });
+    profile.pve_energy = energyState.energy - energyCost;
     const levelMultiplier = (card) => 1 + (Math.min(100, Number(card.level || 1)) - 1) * 0.012;
     const teamAttack = deck.reduce((sum, card) => sum + Number(card.attack || 0) * levelMultiplier(card), 0);
     const teamDefense = deck.reduce((sum, card) => sum + Number(card.defense || 0) * levelMultiplier(card), 0);
     const teamSpeed = deck.reduce((sum, card) => sum + Number(card.speed || 0) * levelMultiplier(card), 0);
     const teamPower = deck.reduce((sum, card) => sum + Number(card.power || 0) * levelMultiplier(card), 0);
-    let playerHp = Math.round(500 + teamDefense * 6);
+    const animeCounts = deck.reduce((counts, card) => ({ ...counts, [card.anime]: Number(counts[card.anime] || 0) + 1 }), {});
+    const sameAnimeCount = Math.max(0, ...Object.values(animeCounts));
+    const uniqueAnimeCount = Object.keys(animeCounts).length;
+    const fullTeamBonus = deck.length === 5 ? 0.08 : 0;
+    const formationBonus = sameAnimeCount >= 3 ? 0.06 : 0;
+    const diversityBonus = uniqueAnimeCount >= 4 ? 0.05 : 0;
+    const weaknessBonus = boss.weaknessAnime && Number(animeCounts[boss.weaknessAnime] || 0) >= 2 ? 0.08 : 0;
+    const assistBonus = Math.min(0.20, Number(profile.pve_loss_streak || 0) * 0.05);
+    const attackMultiplier = 1 + fullTeamBonus + formationBonus + weaknessBonus + assistBonus;
+    const speedMultiplier = 1 + diversityBonus;
+    let playerHp = Math.round((500 + teamDefense * 6) * (1 + fullTeamBonus));
     let bossHp = boss.hp;
     const playerMaxHp = playerHp;
     const rounds = [];
     const randomFactor = () => 0.9 + crypto.randomInt(0, 201) / 1000;
     for (let round = 1; round <= 20 && playerHp > 0 && bossHp > 0; round++) {
-      const critChance = Math.min(0.28, 0.05 + teamSpeed / Math.max(1, teamSpeed + boss.speed) * 0.18);
+      const effectiveSpeed = teamSpeed * speedMultiplier;
+      const critChance = Math.min(0.30, 0.05 + effectiveSpeed / Math.max(1, effectiveSpeed + boss.speed) * 0.18);
       const critical = crypto.randomInt(0, 10_000) / 10_000 < critChance;
-      const playerDamage = Math.max(1, Math.round((teamAttack * 0.55 + teamPower * 0.25 - boss.defense * 0.35) * randomFactor() * (critical ? 1.65 : 1)));
+      const playerDamage = Math.max(1, Math.round((teamAttack * 0.55 + teamPower * 0.25 - boss.defense * 0.35) * attackMultiplier * randomFactor() * (critical ? 1.65 : 1)));
       const bossDamage = Math.max(1, Math.round((boss.attack * 0.42 - teamDefense * 0.12) * randomFactor()));
-      const playerFirst = teamSpeed >= boss.speed;
+      const playerFirst = effectiveSpeed >= boss.speed;
       if (playerFirst) {
         bossHp = Math.max(0, bossHp - playerDamage);
         if (bossHp > 0) playerHp = Math.max(0, playerHp - bossDamage);
@@ -1098,26 +1195,39 @@ async function runFunction(req, res, name, db, user) {
       rounds.push({ round, playerDamage: playerHp > 0 || playerFirst ? playerDamage : 0, bossDamage: bossHp > 0 || !playerFirst ? bossDamage : 0, critical, playerHp, bossHp });
     }
     const victory = bossHp <= 0 && playerHp > 0;
-    const clearedStages = Array.isArray(profile.pve_cleared_stages) ? profile.pve_cleared_stages : [];
     const firstClear = victory && !clearedStages.includes(boss.stage);
-    const rewardScale = firstClear ? 1 : 0.20;
+    const rewardScale = firstClear ? 1 : 0.15;
     const coins = victory ? Math.max(1, Math.round(boss.rewardCoins * rewardScale)) : 0;
     const xp = victory ? Math.max(1, Math.round(boss.rewardXp * rewardScale)) : 0;
     const gems = victory ? Math.round(Number(boss.rewardGems || 0) * rewardScale) : 0;
+    let earnedStars = 0;
     if (victory) {
       profile.coins = Number(profile.coins || 0) + coins;
       profile.xp = Number(profile.xp || 0) + xp;
       profile.gems = Number(profile.gems || 0) + gems;
       profile.pve_wins = Number(profile.pve_wins || 0) + 1;
+      profile.pve_loss_streak = 0;
+      profile.pve_daily_wins = { ...(profile.pve_daily_wins || {}), [boss.id]: dailyWins + 1 };
       if (firstClear) profile.pve_cleared_stages = [...clearedStages, boss.stage].sort((a, b) => a - b);
       profile.pve_max_stage = Math.min(PVE_BOSSES.length, Math.max(maxStage, boss.stage + 1));
+      const hpRatio = playerHp / Math.max(1, playerMaxHp);
+      earnedStars = hpRatio >= 0.70 && rounds.length <= 8 ? 3 : hpRatio >= 0.35 && rounds.length <= 14 ? 2 : 1;
+      profile.pve_stage_stars = { ...(profile.pve_stage_stars || {}), [boss.stage]: Math.max(earnedStars, Number(profile.pve_stage_stars?.[boss.stage] || 0)) };
     } else {
       profile.pve_losses = Number(profile.pve_losses || 0) + 1;
+      profile.pve_loss_streak = Math.min(4, Number(profile.pve_loss_streak || 0) + 1);
     }
     profile.level = getLevelFromXp(Number(profile.xp || 0)).level;
     profile.updated_date = new Date().toISOString();
     entities.PveBattle ||= [];
-    const battle = { id: id(), boss_id: boss.id, boss_name: boss.name, stage: boss.stage, victory, first_clear: firstClear, rewards: { coins, xp, gems }, team_card_ids: deck.map((card) => card.id), team_power: Math.round(teamPower), player_hp: playerHp, player_max_hp: playerMaxHp, boss_hp: bossHp, boss_max_hp: boss.hp, rounds, created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString() };
+    const synergies = [
+      fullTeamBonus ? { id: "full_team", label: "Équipe complète", bonus: "+8 % endurance et dégâts" } : null,
+      formationBonus ? { id: "formation", label: "Formation de série", bonus: "+6 % dégâts" } : null,
+      diversityBonus ? { id: "diversity", label: "Alliance multivers", bonus: "+5 % vitesse" } : null,
+      weaknessBonus ? { id: "weakness", label: "Avantage de série", bonus: "+8 % dégâts" } : null,
+      assistBonus ? { id: "assist", label: "Volonté du combattant", bonus: `+${Math.round(assistBonus * 100)} % dégâts` } : null,
+    ].filter(Boolean);
+    const battle = { id: id(), boss_id: boss.id, boss_name: boss.name, stage: boss.stage, victory, first_clear: firstClear, stars: earnedStars, energy_cost: energyCost, rewards: { coins, xp, gems }, synergies, team_card_ids: deck.map((card) => card.id), team_power: Math.round(teamPower), player_hp: playerHp, player_max_hp: playerMaxHp, boss_hp: bossHp, boss_max_hp: boss.hp, rounds, created_by_id: user.id, created_by: user.email, created_date: new Date().toISOString() };
     entities.PveBattle.push(battle);
     if (entities.PveBattle.length > 1000) entities.PveBattle = entities.PveBattle.slice(-1000);
     result = { ...battle, energy: profile.pve_energy, maxStage: profile.pve_max_stage, profile };
