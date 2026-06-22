@@ -310,10 +310,7 @@ export default function Boosters() {
   const customBoosters = boostersFromCollections;
 
   const initProfile = useMutation({
-    mutationFn: () => appClient.entities.PlayerProfile.create({
-      xp: 0, level: 1, coins: 2500, gems: 10,
-      boosters_opened: 0, total_cards: 0, boosters_count: {}, pity_counter: 0
-    }),
+    mutationFn: () => appClient.functions.invoke("ensurePlayerProfile"),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["profile"] }),
   });
 

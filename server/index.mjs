@@ -126,6 +126,44 @@ const repairDuplicateCollections = (db) => {
   if (removedIds.size) db.entities.AnimeCollection = collections.filter((collection) => !removedIds.has(collection.id));
   return merged;
 };
+const repairDuplicatePlayerProfiles = (db) => {
+  const profiles = db.entities.PlayerProfile || [];
+  const groups = new Map();
+  for (const profile of profiles) {
+    const ownerKey = profile.created_by_id || `email:${String(profile.created_by || "").toLocaleLowerCase("fr")}`;
+    if (!groups.has(ownerKey)) groups.set(ownerKey, []);
+    groups.get(ownerKey).push(profile);
+  }
+  const removedIds = new Set();
+  const merged = [];
+  const maxFields = ["coins", "gems", "xp", "level", "talent_points", "boosters_opened", "total_cards", "pity_counter", "pve_wins", "pve_losses", "pve_max_stage", "pve_energy"];
+  const unionFields = ["claimed_rewards", "pve_cleared_stages", "showcase_card_ids", "system_market_purchases"];
+  const objectMaxFields = ["boosters_count", "pve_stage_stars", "pve_daily_wins"];
+  for (const duplicates of groups.values()) {
+    if (duplicates.length < 2) continue;
+    const ordered = [...duplicates].sort((a, b) => Number(b.xp || 0) - Number(a.xp || 0) || Number(b.boosters_opened || 0) - Number(a.boosters_opened || 0) || Number(b.coins || 0) - Number(a.coins || 0) || new Date(b.updated_date || 0) - new Date(a.updated_date || 0));
+    const canonical = ordered[0];
+    for (const duplicate of ordered.slice(1)) {
+      for (const field of maxFields) canonical[field] = Math.max(Number(canonical[field] || 0), Number(duplicate[field] || 0));
+      for (const field of unionFields) canonical[field] = [...new Set([...(canonical[field] || []), ...(duplicate[field] || [])])];
+      for (const field of objectMaxFields) {
+        const combined = { ...(canonical[field] || {}) };
+        for (const [key, value] of Object.entries(duplicate[field] || {})) combined[key] = Math.max(Number(combined[key] || 0), Number(value || 0));
+        canonical[field] = combined;
+      }
+      for (const [field, value] of Object.entries(duplicate)) {
+        if (["id", ...maxFields, ...unionFields, ...objectMaxFields].includes(field)) continue;
+        if ((canonical[field] === undefined || canonical[field] === null || canonical[field] === "") && value !== undefined && value !== null && value !== "") canonical[field] = value;
+      }
+      canonical.created_date = [canonical.created_date, duplicate.created_date].filter(Boolean).sort()[0] || canonical.created_date;
+      canonical.updated_date = [canonical.updated_date, duplicate.updated_date].filter(Boolean).sort().reverse()[0] || new Date().toISOString();
+      removedIds.add(duplicate.id);
+      merged.push({ kept_id: canonical.id, removed_id: duplicate.id, user_id: canonical.created_by_id, email: canonical.created_by });
+    }
+  }
+  if (removedIds.size) db.entities.PlayerProfile = profiles.filter(profile => !removedIds.has(profile.id));
+  return merged;
+};
 const FUSION_RECIPES = {
   normale: { count: 5, copiesEach: 5, result: "legendaire", cost: 50_000, minLevel: 10, xp: 1_000 },
   legendaire: { count: 5, copiesEach: 3, result: "secrète", cost: 250_000, minLevel: 15, xp: 5_000 },
@@ -353,6 +391,8 @@ const readDb = async () => {
   const remote = await mongoDb();
   if (!remote) {
     if (!warnedAboutMongo) { console.warn("MongoDB non configure : stockage JSON local actif."); warnedAboutMongo = true; }
+    const repairedProfiles = repairDuplicatePlayerProfiles(db);
+    if (repairedProfiles.length) fs.writeFileSync(dbFile, JSON.stringify(db, null, 2));
     dbCache = db;
     return dbCache;
   }
@@ -375,6 +415,11 @@ const readDb = async () => {
     if (!rows.length && db.entities[name]?.length) await collection.insertMany(db.entities[name]);
     else db.entities[name] = rows.map(({ _id, ...row }) => row);
   }));
+  const repairedProfiles = repairDuplicatePlayerProfiles(db);
+  if (repairedProfiles.length) {
+    await syncMongoCollection(remote.collection(entityCollectionName("PlayerProfile")), db.entities.PlayerProfile);
+    console.log(`${repairedProfiles.length} profil(s) joueur en double fusionné(s).`);
+  }
   db.entities.CardDefinition ||= [];
   const definitionIds = new Set(db.entities.CardDefinition.map((card) => card.id));
   const missingDefinitions = baseCardCatalog.filter((card) => !definitionIds.has(card.id));
@@ -525,6 +570,15 @@ const seedProfile = (db, user) => {
     coins: 2500, gems: 100, talent_points: 0,
   });
 };
+const ensureUserProfile = (db, user) => {
+  repairDuplicatePlayerProfiles(db);
+  let profile = (db.entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
+  if (!profile) {
+    seedProfile(db, user);
+    profile = db.entities.PlayerProfile.find((item) => item.created_by_id === user.id);
+  }
+  return profile;
+};
 
 async function authRoutes(req, res, pathname, db) {
   if (pathname === "/api/auth/register" && req.method === "POST") {
@@ -544,6 +598,7 @@ async function authRoutes(req, res, pathname, db) {
     const user = db.users.find((item) => item.email === input.email?.trim().toLowerCase());
     if (!user || !user.password_hash || !validPassword(input.password || "", user)) return json(res, 401, { message: "E-mail ou mot de passe incorrect." });
     if (isUserSuspended(user)) return json(res, 403, { message: user.suspension_reason || "Ce compte est temporairement suspendu." });
+    ensureUserProfile(db, user);
     user.last_login_at = new Date().toISOString();
     const token = createSession(db, user.id); await writeDb(db);
     return json(res, 200, { access_token: token, user: publicUser(user) });
@@ -622,6 +677,7 @@ async function authRoutes(req, res, pathname, db) {
     let user = db.users.find((item) => item.email === info.email);
     if (!user) { user = { id: id(), email: info.email, full_name: info.name || "", avatar_url: info.picture, role: db.users.length ? "user" : "admin", provider: "google", created_date: new Date().toISOString() }; db.users.push(user); seedProfile(db, user); }
     if (isUserSuspended(user)) { await writeDb(db); return redirect(res, `${oauthState.return_origin || frontendUrl}/login?error=account_suspended`); }
+    ensureUserProfile(db, user);
     user.last_login_at = new Date().toISOString();
     const token = createSession(db, user.id); await writeDb(db);
     const target = new URL(oauthState.return_path, oauthState.return_origin || frontendUrl); target.searchParams.set("access_token", token);
@@ -779,6 +835,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   }
   if (req.method === "POST" && action === "bulk") {
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Les talents doivent être débloqués depuis l'arbre de talents." });
+    if (name === "PlayerProfile" && user.role !== "admin") return json(res, 403, { message: "Le profil joueur est créé automatiquement avec le compte." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
     if (["AnimeCollection", "CardDefinition"].includes(name) && input.anime) input.anime = canonicalAnimeName(input.anime);
@@ -794,6 +851,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   }
   if (req.method === "POST" && !action) {
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Les talents doivent être débloqués depuis l'arbre de talents." });
+    if (name === "PlayerProfile" && user.role !== "admin") return json(res, 403, { message: "Le profil joueur est créé automatiquement avec le compte." });
     if (name === "Auction" && user.role !== "admin") return json(res, 403, { message: "Utilise la création d’enchère sécurisée." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
@@ -855,10 +913,13 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
 async function runFunction(req, res, name, db, user) {
   const input = await body(req);
   const entities = db.entities;
-  const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
+  let profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "getFriendsState") {
+  if (name === "ensurePlayerProfile") {
+    if (!profile) { seedProfile(db, user); profile = (entities.PlayerProfile || []).find(item => item.created_by_id === user.id); }
+    result = profile;
+  } else if (name === "getFriendsState") {
     const friendships = entities.Friendship || [];
     const decorate = (targetId, relation) => {
       const targetUser = db.users.find(candidate => candidate.id === targetId);
