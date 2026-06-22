@@ -1,138 +1,72 @@
-import React, { useEffect, useState } from "react";
-import { appClient } from "@/api/appClient";
+import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, Upload, User } from "lucide-react";
+import { Check, Eye, Image, Link2, Palette, Save, Shield, Upload, User } from "lucide-react";
+import { appClient } from "@/api/appClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RARITY_CONFIG } from "@/lib/gameData";
 import { toast } from "sonner";
 
 export const BANNER_COLORS = [
-  { id: "purple", name: "Violet", gradient: "from-purple-600 to-pink-700" },
-  { id: "blue", name: "Bleu", gradient: "from-blue-600 to-cyan-700" },
-  { id: "red", name: "Rouge", gradient: "from-red-600 to-orange-700" },
-  { id: "green", name: "Vert", gradient: "from-green-600 to-emerald-700" },
-  { id: "gold", name: "Or", gradient: "from-yellow-500 to-amber-700" },
-  { id: "dark", name: "Sombre", gradient: "from-slate-800 to-slate-950" },
+  { id: "purple", name: "Violet", gradient: "from-purple-600 to-pink-700" }, { id: "blue", name: "Bleu", gradient: "from-blue-600 to-cyan-700" },
+  { id: "red", name: "Rouge", gradient: "from-red-600 to-orange-700" }, { id: "green", name: "Vert", gradient: "from-green-600 to-emerald-700" },
+  { id: "gold", name: "Or", gradient: "from-yellow-500 to-amber-700" }, { id: "dark", name: "Sombre", gradient: "from-slate-800 to-slate-950" },
+  { id: "sakura", name: "Sakura", gradient: "from-pink-500 via-rose-500 to-fuchsia-800" }, { id: "ocean", name: "Océan", gradient: "from-cyan-500 via-blue-700 to-indigo-950" },
 ];
+export const PROFILE_THEMES = [
+  { id: "midnight", name: "Minuit", card: "from-slate-950 to-slate-900" }, { id: "aurora", name: "Aurore", card: "from-violet-950 to-cyan-950" },
+  { id: "crimson", name: "Crimson", card: "from-red-950 to-stone-950" }, { id: "sakura", name: "Sakura", card: "from-pink-950 to-purple-950" },
+  { id: "ocean", name: "Océan", card: "from-blue-950 to-cyan-950" }, { id: "gold", name: "Royal", card: "from-amber-950 to-slate-950" },
+];
+const ACCENTS = ["#8b5cf6", "#ec4899", "#ef4444", "#f59e0b", "#22c55e", "#06b6d4", "#3b82f6", "#ffffff"];
+const initial = (profile, user) => ({
+  display_name: profile?.display_name || user?.full_name || "", avatar_url: profile?.avatar_url || user?.avatar_url || "", banner_url: profile?.banner_url || "",
+  banner_id: profile?.banner_id || "purple", profile_theme: profile?.profile_theme || "midnight", accent_color: profile?.accent_color || "#8b5cf6",
+  profile_effect: profile?.profile_effect || "none", profile_layout: profile?.profile_layout || "standard", bio: profile?.bio || "", pronouns: profile?.pronouns || "",
+  status_text: profile?.status_text || "", status_emoji: profile?.status_emoji || "✨", presence_style: profile?.presence_style || "online",
+  favorite_anime: profile?.favorite_anime || "", location: profile?.location || "", social_links: profile?.social_links || [], showcase_card_ids: profile?.showcase_card_ids || [],
+  profile_visibility: profile?.profile_visibility || "public", show_stats: profile?.show_stats !== false, show_badges: profile?.show_badges !== false, show_activity: profile?.show_activity === true,
+});
+const presenceColor = { online: "bg-emerald-400", idle: "bg-yellow-400", dnd: "bg-red-500", invisible: "bg-slate-500" };
 
-export default function ProfileCustomization({ profile, user, onUpdated }) {
-  const queryClient = useQueryClient();
-  const [displayName, setDisplayName] = useState(profile?.display_name || user?.full_name || "");
-  const [selectedBanner, setSelectedBanner] = useState(profile?.banner_id || "purple");
-  const [bio, setBio] = useState(profile?.bio || "");
-  const [favoriteAnime, setFavoriteAnime] = useState(profile?.favorite_anime || "");
-  const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || user?.avatar_url || "");
-  const [isUploading, setIsUploading] = useState(false);
-
-  useEffect(() => {
-    setDisplayName(profile?.display_name || user?.full_name || "");
-    setSelectedBanner(profile?.banner_id || "purple");
-    setBio(profile?.bio || "");
-    setFavoriteAnime(profile?.favorite_anime || "");
-    setAvatarUrl(profile?.avatar_url || user?.avatar_url || "");
-  }, [profile, user]);
-
-  const updateProfileMutation = useMutation({
-    mutationFn: async () => {
-      const pseudo = displayName.trim();
-      if (pseudo.length < 3 || pseudo.length > 24) throw new Error("Le pseudo doit contenir entre 3 et 24 caractères.");
-
-      await appClient.auth.updateMe({ full_name: pseudo, avatar_url: avatarUrl || null });
-      await appClient.entities.PlayerProfile.update(profile.id, {
-        banner_id: selectedBanner,
-        display_name: pseudo,
-        bio: bio.trim().slice(0, 160),
-        favorite_anime: favoriteAnime.trim().slice(0, 40),
-        avatar_url: avatarUrl || null,
-      });
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["profile"] }),
-        queryClient.invalidateQueries({ queryKey: ["profiles"] }),
-        queryClient.invalidateQueries({ queryKey: ["users"] }),
-      ]);
-      await onUpdated?.();
-      toast.success("Profil personnalisé sauvegardé ! ✨");
-    },
-    onError: (error) => toast.error(error.message || "Impossible de sauvegarder le profil."),
-  });
-
-  const handleAvatarUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) return toast.error("Choisis une image valide.");
-    setIsUploading(true);
-    try {
-      const uploaded = await appClient.integrations.Core.UploadFile({ file });
-      setAvatarUrl(uploaded.file_url);
-    } catch (error) {
-      toast.error(error.message || "Impossible d'envoyer l'avatar.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const currentBanner = BANNER_COLORS.find((banner) => banner.id === selectedBanner) || BANNER_COLORS[0];
-
-  return (
-    <div className="rounded-2xl border border-border bg-card overflow-hidden">
-      <div className={`h-32 bg-gradient-to-r ${currentBanner.gradient} relative`}>
-        <div className="absolute inset-0 shimmer" />
-      </div>
-
-      <div className="px-6 pb-6 -mt-12 relative">
-        <div className="flex justify-center mb-4">
-          <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center border-4 border-card shadow-xl overflow-hidden">
-            {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-white" />}
-            <label className="absolute inset-x-0 bottom-0 h-8 bg-black/70 flex items-center justify-center cursor-pointer text-white text-[10px]">
-              <Upload className="w-3 h-3 mr-1" />{isUploading ? "Envoi..." : "Avatar"}
-              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={handleAvatarUpload} disabled={isUploading} />
-            </label>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="displayName">Pseudo public</Label>
-            <Input id="displayName" value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={24} className="bg-secondary/50 border-border" placeholder="Votre pseudo" />
-            <p className="text-xs text-muted-foreground">Entre 3 et 24 caractères. Visible dans le classement.</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="favoriteAnime">Manga préféré</Label>
-            <Input id="favoriteAnime" value={favoriteAnime} onChange={(event) => setFavoriteAnime(event.target.value)} maxLength={40} placeholder="Ex. One Piece" className="bg-secondary/50 border-border" />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="profileBio">Bio</Label>
-            <textarea id="profileBio" value={bio} onChange={(event) => setBio(event.target.value)} maxLength={160} rows={3} placeholder="Présente ton style de collection..." className="w-full rounded-md border border-border bg-secondary/50 px-3 py-2 text-sm resize-none" />
-            <p className="text-[10px] text-muted-foreground text-right">{bio.length}/160</p>
-          </div>
-
-          <div className="space-y-3">
-            <Label className="text-sm font-semibold">Bannière</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {BANNER_COLORS.map((banner) => (
-                <button type="button" key={banner.id} onClick={() => setSelectedBanner(banner.id)} className={`h-12 rounded-lg bg-gradient-to-r ${banner.gradient} border-2 transition-all ${selectedBanner === banner.id ? "border-white shadow-lg" : "border-transparent opacity-70 hover:opacity-100"}`}>
-                  <span className="sr-only">{banner.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="p-3 rounded-lg bg-secondary/30 border border-border space-y-2">
-            <div className="flex justify-between text-xs gap-3"><span className="text-muted-foreground">Email</span><span className="font-medium truncate">{user?.email}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Rôle</span><span className="font-medium capitalize text-primary">{user?.role}</span></div>
-          </div>
-
-          <Button onClick={() => updateProfileMutation.mutate()} disabled={updateProfileMutation.isPending || isUploading || !profile} className="w-full bg-primary hover:bg-primary/90">
-            <Save className="w-4 h-4 mr-2" />
-            {updateProfileMutation.isPending ? "Sauvegarde..." : "Sauvegarder le profil"}
-          </Button>
-        </div>
-      </div>
+function LivePreview({ form, cards }) {
+  const banner = BANNER_COLORS.find(item => item.id === form.banner_id) || BANNER_COLORS[0];
+  const theme = PROFILE_THEMES.find(item => item.id === form.profile_theme) || PROFILE_THEMES[0];
+  const selected = form.showcase_card_ids.map(id => cards.find(card => card.id === id)).filter(Boolean);
+  return <div className={`sticky top-0 overflow-hidden rounded-2xl border bg-gradient-to-b ${theme.card} shadow-2xl`} style={{ borderColor: `${form.accent_color}66`, boxShadow: form.profile_effect === "glow" ? `0 0 32px ${form.accent_color}55` : undefined }}>
+    <div className={`relative h-28 bg-gradient-to-r ${banner.gradient}`}>{form.banner_url && <img src={form.banner_url} alt="Bannière" className="h-full w-full object-cover" />}{form.profile_effect === "sparkles" && <div className="absolute inset-0 shimmer opacity-60" />}</div>
+    <div className="relative -mt-10 px-4 pb-5"><div className="relative h-20 w-20 overflow-hidden rounded-full border-4 border-slate-950 bg-slate-800">{form.avatar_url ? <img src={form.avatar_url} alt="Avatar" className="h-full w-full object-cover" /> : <User className="m-5 h-8 w-8" />}<span className={`absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-slate-950 ${presenceColor[form.presence_style]}`} /></div>
+      <h3 className="mt-2 truncate text-xl font-black" style={{ color: form.accent_color }}>{form.display_name || "Ton pseudo"}</h3>{form.pronouns && <p className="text-[10px] text-white/45">{form.pronouns}</p>}
+      {form.status_text && <p className="mt-2 rounded-lg bg-white/5 px-2 py-1.5 text-xs">{form.status_emoji} {form.status_text}</p>}
+      {form.bio && <p className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-white/65">{form.bio}</p>}
+      {selected.length > 0 && <div className="mt-4 grid grid-cols-3 gap-2">{selected.map(card => <img key={card.id} src={card.image_url} alt={card.name} className="aspect-[2/3] w-full rounded-lg border object-cover object-top" style={{ borderColor: `${form.accent_color}55` }} />)}</div>}
+      <div className="mt-4 flex flex-wrap gap-1">{form.social_links.filter(link => link.url).map((link, i) => <span key={i} className="rounded-full bg-white/5 px-2 py-1 text-[9px] text-white/60">🔗 {link.label || "Lien"}</span>)}</div>
     </div>
-  );
+  </div>;
+}
+
+export default function ProfileCustomization({ profile, user, cards = [], onUpdated }) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState(() => initial(profile, user));
+  const [tab, setTab] = useState("identity");
+  const [uploading, setUploading] = useState(null);
+  useEffect(() => setForm(initial(profile, user)), [profile, user]);
+  const selectedCards = useMemo(() => new Set(form.showcase_card_ids), [form.showcase_card_ids]);
+  const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  const save = useMutation({ mutationFn: () => appClient.functions.invoke("updateProfileCustomization", form), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["profile"] }); await onUpdated?.(); toast.success("Profil personnalisé sauvegardé ✨"); }, onError: error => toast.error(error.message) });
+  const upload = async (event, kind) => { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith("image/") || file.size > 8 * 1024 * 1024) return toast.error("Image invalide ou supérieure à 8 Mo."); setUploading(kind); try { const result = await appClient.integrations.Core.UploadFile({ file }); set(kind === "avatar" ? "avatar_url" : "banner_url", result.file_url); } catch (error) { toast.error(error.message); } finally { setUploading(null); } };
+  const toggleCard = id => set("showcase_card_ids", selectedCards.has(id) ? form.showcase_card_ids.filter(value => value !== id) : form.showcase_card_ids.length < 3 ? [...form.showcase_card_ids, id] : form.showcase_card_ids);
+  const updateLink = (index, key, value) => set("social_links", form.social_links.map((link, i) => i === index ? { ...link, [key]: value } : link));
+  const tabs = [{ id: "identity", label: "Identité", icon: User }, { id: "appearance", label: "Apparence", icon: Palette }, { id: "showcase", label: "Vitrine", icon: Image }, { id: "privacy", label: "Liens & visibilité", icon: Shield }];
+
+  return <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
+    <div className="min-w-0"><div className="mb-4 flex gap-2 overflow-x-auto pb-1">{tabs.map(item => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold ${tab === item.id ? "bg-primary text-white" : "bg-secondary/50 text-muted-foreground"}`}><Icon className="h-3.5 w-3.5" />{item.label}</button>; })}</div>
+      {tab === "identity" && <div className="space-y-4"><div><Label>Pseudo public</Label><Input value={form.display_name} onChange={e => set("display_name", e.target.value)} maxLength={24} /></div><div className="grid gap-3 sm:grid-cols-2"><div><Label>Pronoms</Label><Input value={form.pronouns} onChange={e => set("pronouns", e.target.value)} maxLength={30} placeholder="il/lui, elle/elle…" /></div><div><Label>Localisation</Label><Input value={form.location} onChange={e => set("location", e.target.value)} maxLength={40} placeholder="France" /></div></div><div><Label>Statut personnalisé</Label><div className="flex gap-2"><Input className="w-16" value={form.status_emoji} onChange={e => set("status_emoji", e.target.value)} maxLength={8} /><Input value={form.status_text} onChange={e => set("status_text", e.target.value)} maxLength={80} placeholder="En train de compléter One Piece…" /></div></div><div><Label>Présence décorative</Label><div className="mt-2 grid grid-cols-4 gap-2">{[["online","En ligne"],["idle","Absent"],["dnd","Occupé"],["invisible","Invisible"]].map(([id,label]) => <button type="button" key={id} onClick={() => set("presence_style", id)} className={`rounded-lg border p-2 text-[10px] ${form.presence_style === id ? "border-primary bg-primary/10" : "border-border"}`}><span className={`mr-1 inline-block h-2 w-2 rounded-full ${presenceColor[id]}`} />{label}</button>)}</div></div><div><Label>À propos de moi</Label><textarea value={form.bio} onChange={e => set("bio", e.target.value)} maxLength={190} rows={4} className="mt-1 w-full resize-none rounded-md border border-input bg-background p-3 text-sm" /><p className="text-right text-[9px] text-muted-foreground">{form.bio.length}/190</p></div><div><Label>Manga préféré</Label><Input value={form.favorite_anime} onChange={e => set("favorite_anime", e.target.value)} maxLength={40} /></div></div>}
+      {tab === "appearance" && <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2"><label className="grid cursor-pointer place-items-center rounded-xl border border-dashed border-border p-4 text-xs"><Upload className="mb-2 h-5 w-5" />{uploading === "avatar" ? "Envoi…" : "Importer un avatar"}<input type="file" accept="image/*" className="hidden" onChange={e => upload(e,"avatar")} /></label><label className="grid cursor-pointer place-items-center rounded-xl border border-dashed border-border p-4 text-xs"><Upload className="mb-2 h-5 w-5" />{uploading === "banner" ? "Envoi…" : "Importer une bannière"}<input type="file" accept="image/*" className="hidden" onChange={e => upload(e,"banner")} /></label></div><div><Label>Thème du profil</Label><div className="mt-2 grid grid-cols-3 gap-2">{PROFILE_THEMES.map(theme => <button type="button" key={theme.id} onClick={() => set("profile_theme",theme.id)} className={`h-14 rounded-xl border-2 bg-gradient-to-br ${theme.card} text-[10px] font-bold ${form.profile_theme === theme.id ? "border-white" : "border-transparent"}`}>{theme.name}</button>)}</div></div><div><Label>Bannière de secours</Label><div className="mt-2 grid grid-cols-4 gap-2">{BANNER_COLORS.map(banner => <button type="button" key={banner.id} onClick={() => set("banner_id",banner.id)} className={`h-10 rounded-lg border-2 bg-gradient-to-r ${banner.gradient} ${form.banner_id === banner.id ? "border-white" : "border-transparent opacity-65"}`} aria-label={banner.name} />)}</div></div><div><Label>Couleur d’accent</Label><div className="mt-2 flex flex-wrap gap-2">{ACCENTS.map(color => <button type="button" key={color} onClick={() => set("accent_color",color)} className="grid h-8 w-8 place-items-center rounded-full border border-white/20" style={{background:color}}>{form.accent_color === color && <Check className={`h-4 w-4 ${color === "#ffffff" ? "text-black" : "text-white"}`} />}</button>)}</div></div><div className="grid gap-3 sm:grid-cols-2"><div><Label>Effet</Label><select value={form.profile_effect} onChange={e => set("profile_effect",e.target.value)} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="none">Aucun</option><option value="glow">Aura lumineuse</option><option value="sparkles">Étincelles</option><option value="pulse">Pulsation</option></select></div><div><Label>Disposition</Label><select value={form.profile_layout} onChange={e => set("profile_layout",e.target.value)} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="standard">Standard</option><option value="compact">Compacte</option><option value="showcase">Vitrine</option></select></div></div></div>}
+      {tab === "showcase" && <div><div className="mb-3"><h3 className="font-bold">Vitrine de cartes ({form.showcase_card_ids.length}/3)</h3><p className="text-xs text-muted-foreground">Choisis jusqu’à trois cartes visibles en haut de ton profil.</p></div><div className="grid max-h-[460px] grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-4">{cards.map(card => { const rarity=RARITY_CONFIG[card.rarity]||RARITY_CONFIG.normale; const active=selectedCards.has(card.id); return <button type="button" key={card.id} onClick={() => toggleCard(card.id)} className={`relative overflow-hidden rounded-xl border-2 ${active ? "border-primary ring-2 ring-primary/30" : rarity.borderColor}`}>{card.image_url ? <img src={card.image_url} alt={card.name} className="aspect-[2/3] w-full object-cover object-top" /> : <div className="grid aspect-[2/3] place-items-center bg-secondary p-1 text-[9px]">{card.name}</div>}<span className="absolute inset-x-0 bottom-0 truncate bg-black/80 p-1 text-[8px] text-white">{card.name}</span>{active && <span className="absolute right-1 top-1 rounded-full bg-primary p-1"><Check className="h-3 w-3" /></span>}</button>; })}</div></div>}
+      {tab === "privacy" && <div className="space-y-5"><div><Label>Visibilité du profil</Label><select value={form.profile_visibility} onChange={e => set("profile_visibility",e.target.value)} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="public">Public</option><option value="unlisted">Accessible par lien</option><option value="private">Privé</option></select></div><div className="space-y-2">{[["show_stats","Afficher mes statistiques"],["show_badges","Afficher mes badges et titres"],["show_activity","Afficher mon activité récente"]].map(([key,label]) => <label key={key} className="flex items-center justify-between rounded-xl border border-border p-3 text-sm"><span>{label}</span><input type="checkbox" checked={form[key]} onChange={e => set(key,e.target.checked)} className="h-4 w-4 accent-primary" /></label>)}</div><div><div className="mb-2 flex items-center justify-between"><Label>Liens sociaux ({form.social_links.length}/4)</Label><Button type="button" size="sm" variant="outline" disabled={form.social_links.length>=4} onClick={() => set("social_links",[...form.social_links,{label:"",url:""}])}><Link2 className="mr-1 h-3 w-3" />Ajouter</Button></div><div className="space-y-2">{form.social_links.map((link,index) => <div key={index} className="grid grid-cols-[100px_1fr_auto] gap-2"><Input value={link.label} onChange={e=>updateLink(index,"label",e.target.value)} placeholder="Discord" /><Input value={link.url} onChange={e=>updateLink(index,"url",e.target.value)} placeholder="https://…" /><Button type="button" variant="ghost" onClick={()=>set("social_links",form.social_links.filter((_,i)=>i!==index))}>×</Button></div>)}</div></div></div>}
+      <Button className="mt-6 w-full" onClick={() => save.mutate()} disabled={save.isPending || uploading || !profile}><Save className="mr-2 h-4 w-4" />{save.isPending ? "Sauvegarde…" : "Sauvegarder toutes les modifications"}</Button>
+    </div><div className="hidden lg:block"><p className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"><Eye className="h-3 w-3" />Aperçu en direct</p><LivePreview form={form} cards={cards} /></div>
+  </div>;
 }

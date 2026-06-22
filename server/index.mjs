@@ -762,7 +762,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     return json(res, 403, { message: "Operation interdite sur les utilisateurs." });
   }
   db.entities[name] ||= []; const rows = db.entities[name];
-  const privateEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization"]);
+  const privateEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization"]);
   const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats", "TitleDefinition"]);
   const collaborativeEntities = new Set();
   const canAccess = (row) => user.role === "admin" || !privateEntities.has(name) || row.created_by_id === user.id;
@@ -858,7 +858,70 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "getTitleCatalog") {
+  if (name === "updateProfileCustomization") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const displayName = String(input.display_name || "").replace(/\s+/g, " ").trim();
+    if (displayName.length < 3 || displayName.length > 24) return json(res, 400, { message: "Le pseudo doit contenir entre 3 et 24 caractères." });
+    if (db.users.some(candidate => candidate.id !== user.id && String(candidate.full_name || "").trim().toLocaleLowerCase("fr") === displayName.toLocaleLowerCase("fr"))) return json(res, 409, { message: "Ce pseudo est déjà utilisé." });
+    const cleanImage = (value, current) => {
+      if (!value) return null;
+      const url = String(value).slice(0, 2048);
+      if (/^\/api\/uploads\/[a-f0-9]{24}$/i.test(url) || url === current) return url;
+      return null;
+    };
+    const allowedThemes = new Set(["midnight", "aurora", "crimson", "sakura", "ocean", "gold"]);
+    const allowedBanners = new Set(["purple", "blue", "red", "green", "gold", "dark", "sakura", "ocean"]);
+    const allowedPresence = new Set(["online", "idle", "dnd", "invisible"]);
+    const allowedEffects = new Set(["none", "glow", "sparkles", "pulse"]);
+    const allowedLayouts = new Set(["standard", "compact", "showcase"]);
+    const allowedVisibility = new Set(["public", "unlisted", "private"]);
+    const accent = /^#[0-9a-f]{6}$/i.test(String(input.accent_color || "")) ? String(input.accent_color) : "#8b5cf6";
+    const showcaseIds = [...new Set(Array.isArray(input.showcase_card_ids) ? input.showcase_card_ids.map(String) : [])].slice(0, 3);
+    const ownedIds = new Set((entities.Card || []).filter(card => card.created_by_id === user.id).map(card => card.id));
+    if (showcaseIds.some(cardId => !ownedIds.has(cardId))) return json(res, 403, { message: "Une carte de la vitrine ne t'appartient pas." });
+    const socialLinks = (Array.isArray(input.social_links) ? input.social_links : []).slice(0, 4).map(link => {
+      try {
+        const url = new URL(String(link.url || ""));
+        if (url.protocol !== "https:") return null;
+        return { label: String(link.label || url.hostname).replace(/\s+/g, " ").trim().slice(0, 24), url: url.toString().slice(0, 300) };
+      } catch { return null; }
+    }).filter(Boolean);
+    const avatarUrl = cleanImage(input.avatar_url, profile.avatar_url || user.avatar_url || null);
+    const bannerUrl = cleanImage(input.banner_url, profile.banner_url || null);
+    Object.assign(profile, {
+      display_name: displayName, avatar_url: avatarUrl, banner_url: bannerUrl,
+      banner_id: allowedBanners.has(input.banner_id) ? input.banner_id : "purple",
+      profile_theme: allowedThemes.has(input.profile_theme) ? input.profile_theme : "midnight",
+      accent_color: accent, profile_effect: allowedEffects.has(input.profile_effect) ? input.profile_effect : "none",
+      profile_layout: allowedLayouts.has(input.profile_layout) ? input.profile_layout : "standard",
+      bio: String(input.bio || "").trim().slice(0, 190), pronouns: String(input.pronouns || "").trim().slice(0, 30),
+      status_text: String(input.status_text || "").trim().slice(0, 80), status_emoji: String(input.status_emoji || "").trim().slice(0, 8),
+      presence_style: allowedPresence.has(input.presence_style) ? input.presence_style : "online",
+      favorite_anime: String(input.favorite_anime || "").trim().slice(0, 40), location: String(input.location || "").trim().slice(0, 40),
+      social_links: socialLinks, showcase_card_ids: showcaseIds,
+      profile_visibility: allowedVisibility.has(input.profile_visibility) ? input.profile_visibility : "public",
+      show_stats: input.show_stats !== false, show_badges: input.show_badges !== false, show_activity: input.show_activity === true,
+      updated_date: new Date().toISOString(),
+    });
+    user.full_name = displayName; user.avatar_url = avatarUrl; user.updated_date = profile.updated_date;
+    result = { profile, user: publicUser(user) };
+  } else if (name === "getPublicProfile") {
+    const targetUserId = String(input.user_id || user.id);
+    const targetProfile = (entities.PlayerProfile || []).find(item => item.created_by_id === targetUserId);
+    const targetUser = db.users.find(item => item.id === targetUserId);
+    if (!targetProfile || !targetUser) return json(res, 404, { message: "Profil introuvable." });
+    const isOwner = targetUserId === user.id || user.role === "admin";
+    if (targetProfile.profile_visibility === "private" && !isOwner) return json(res, 403, { message: "Ce profil est privé." });
+    const showcaseIds = new Set(targetProfile.showcase_card_ids || []);
+    const showcase = (entities.Card || []).filter(card => card.created_by_id === targetUserId && showcaseIds.has(card.id)).map(card => resolvedCard(db, card));
+    const publicFields = ["display_name", "avatar_url", "banner_url", "banner_id", "profile_theme", "accent_color", "profile_effect", "profile_layout", "bio", "pronouns", "status_text", "status_emoji", "presence_style", "favorite_anime", "location", "social_links", "equipped_title_id", "created_date", "show_stats", "show_badges", "show_activity", "pve_wins", "pve_max_stage", "boosters_opened", "xp"];
+    const safeProfile = Object.fromEntries(publicFields.map(field => [field, targetProfile[field]]));
+    const activity = targetProfile.show_activity === true ? [
+      ...(entities.PveBattle || []).filter(row => row.created_by_id === targetUserId).map(row => ({ type: "pve", label: `${row.victory ? "Victoire" : "Défaite"} contre ${row.boss_name}`, created_date: row.created_date })),
+      ...(entities.Transaction || []).filter(row => row.created_by_id === targetUserId).map(row => ({ type: row.type, label: String(row.description || row.type || "Activité").slice(0, 100), created_date: row.created_date })),
+    ].sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, 5) : [];
+    result = { user_id: targetUserId, profile: safeProfile, showcase, activity, collection_size: (entities.Card || []).filter(card => card.created_by_id === targetUserId).length };
+  } else if (name === "getTitleCatalog") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     result = (entities.TitleDefinition || [])
       .filter(title => title.is_active !== false)
@@ -1286,7 +1349,7 @@ async function runFunction(req, res, name, db, user) {
     Object.assign(auction, { current_bid: amount, highest_bidder_id: user.id, highest_bidder_name: profile.display_name || user.full_name || "Joueur", updated_date: new Date().toISOString() });
     result = auction;
   } else if (name === "getLeaderboard") {
-    const profiles = entities.PlayerProfile || [];
+    const profiles = (entities.PlayerProfile || []).filter(playerProfile => playerProfile.profile_visibility === "public" || !playerProfile.profile_visibility || playerProfile.created_by_id === user.id);
     const cards = entities.Card || [];
     const rarityScore = { normale: 1, legendaire: 25, "secrète": 50, manga_god: 100 };
     result = profiles.map((playerProfile) => {

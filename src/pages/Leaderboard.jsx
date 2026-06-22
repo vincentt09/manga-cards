@@ -3,6 +3,7 @@ import { appClient } from "@/api/appClient";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Trophy, Medal, Crown } from "lucide-react";
+import { Link } from "react-router-dom";
 import Navbar from "@/components/game/Navbar";
 import CurrencyBar from "@/components/game/CurrencyBar";
 import { PROFILE_TITLES } from "@/lib/achievements";
@@ -36,9 +37,7 @@ function LeaderboardRow({ player, rank, customTitles }) {
 
       <div className="flex-1 min-w-0">
         <div className="mb-1 flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <p className={`font-semibold truncate ${isCurrentUser ? "text-primary" : "text-foreground"}`}>
-            {player.name}
-          </p>
+          <Link to={isCurrentUser ? "/profile" : `/profile/${player.userId}`} className={`truncate font-semibold hover:underline ${isCurrentUser ? "text-primary" : "text-foreground"}`}>{player.name}</Link>
           {isCurrentUser && (
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary text-primary-foreground font-bold">
               TOI

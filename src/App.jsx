@@ -20,6 +20,7 @@ const ResetPassword = lazy(() => import('@/pages/ResetPassword'));
 const Collection = lazy(() => import('@/pages/Collection'));
 const Boosters = lazy(() => import('@/pages/Boosters'));
 const Profile = lazy(() => import('@/pages/Profile'));
+const PublicProfile = lazy(() => import('@/pages/PublicProfile'));
 const Marketplace = lazy(() => import('@/pages/Marketplace'));
 const Encyclopedia = lazy(() => import('@/pages/Encyclopedia'));
 const HistoryPage = lazy(() => import('@/pages/History'));
@@ -62,6 +63,7 @@ const AuthenticatedApp = () => {
         <Route path="/encyclopedia" element={<Encyclopedia />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/profile" element={<Profile />} />
+        <Route path="/profile/:userId" element={<PublicProfile />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/fusion" element={<Fusion />} />
         <Route path="/frames" element={<Frames />} />

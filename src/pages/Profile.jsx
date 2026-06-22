@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { appClient } from "@/api/appClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { User, Package, Layers, Trophy, Zap, Crown, Coins, Gem, LogOut, Gift, ScrollText, BookOpen, History, Settings } from "lucide-react";
+import { User, Package, Layers, Trophy, Zap, Crown, Coins, Gem, LogOut, Gift, ScrollText, BookOpen, History, Settings, MapPin, Link2 } from "lucide-react";
 import { ACHIEVEMENTS, PROFILE_TITLES, getAchievementData } from "@/lib/achievements";
 import { Link } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
@@ -16,7 +16,7 @@ import DailyQuests from "@/components/game/DailyQuests";
 import { getLevelFromXp, RARITY_CONFIG } from "@/lib/gameData";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
-import ProfileCustomization, { BANNER_COLORS } from "@/components/profile/ProfileCustomization";
+import ProfileCustomization, { BANNER_COLORS, PROFILE_THEMES } from "@/components/profile/ProfileCustomization";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 function StatCard({ icon: Icon, label, value, color }) {
@@ -54,7 +54,9 @@ export default function Profile() {
 
   const profile = profiles[0];
   const bannerGradient = BANNER_COLORS.find(banner => banner.id === profile?.banner_id)?.gradient || BANNER_COLORS[0].gradient;
+  const profileTheme = PROFILE_THEMES.find(theme => theme.id === profile?.profile_theme) || PROFILE_THEMES[0];
   const avatarUrl = profile?.avatar_url || user?.avatar_url;
+  const showcaseCards = (profile?.showcase_card_ids || []).map(id => cards.find(card => card.id === id)).filter(Boolean);
   const isLoading = isLoadingProfile || isLoadingCards;
   const levelInfo = getLevelFromXp(profile?.xp || 0);
   const xpPercent = (levelInfo.currentXp / levelInfo.xpToNext) * 100;
@@ -109,26 +111,31 @@ export default function Profile() {
       <Navbar />
       <CurrencyBar profile={profile} cards={cards} />
 
-      <div className="mx-auto max-w-3xl space-y-6 px-3 py-5 sm:px-4 sm:py-6">
+      <div className="mx-auto max-w-4xl space-y-6 px-3 py-5 sm:px-4 sm:py-6">
         {/* Profile Header */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl border border-border bg-card overflow-hidden">
-          <div className={`h-24 bg-gradient-to-r ${bannerGradient} relative`}>
+          className={`overflow-hidden rounded-2xl border bg-gradient-to-b ${profileTheme.card} ${profile?.profile_effect === "pulse" ? "animate-pulse" : ""}`}
+          style={{ borderColor: `${profile?.accent_color || "#8b5cf6"}66`, boxShadow: profile?.profile_effect === "glow" ? `0 0 35px ${profile?.accent_color || "#8b5cf6"}44` : undefined }}>
+          <div className={`h-28 bg-gradient-to-r ${bannerGradient} relative`}>
+            {profile?.banner_url && <img src={profile.banner_url} alt="Bannière du profil" className="absolute inset-0 h-full w-full object-cover" />}
             <div className="absolute inset-0 shimmer" />
           </div>
           <div className="relative -mt-10 px-4 pb-5 sm:px-5">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center border-4 border-card overflow-hidden">
+            <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center border-4 border-slate-950 overflow-hidden">
               {avatarUrl ? <img src={avatarUrl} alt="Avatar du joueur" className="w-full h-full object-cover" /> : <User className="w-8 h-8 text-white" />}
+              <span className={`absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-2 border-slate-950 ${profile?.presence_style === "idle" ? "bg-yellow-400" : profile?.presence_style === "dnd" ? "bg-red-500" : profile?.presence_style === "invisible" ? "bg-slate-500" : "bg-emerald-400"}`} />
             </div>
             <div className="mt-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h1 className="break-words font-display text-xl font-bold">{profile?.display_name || user?.full_name || "Joueur"}</h1>
+                <div className="flex flex-wrap items-baseline gap-2"><h1 className="break-words font-display text-xl font-bold" style={{ color: profile?.accent_color || undefined }}>{profile?.display_name || user?.full_name || "Joueur"}</h1>{profile?.pronouns && <span className="text-[10px] text-white/40">{profile.pronouns}</span>}</div>
                 <div className="inline-flex items-center gap-1.5 mt-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1 text-[11px] font-bold text-yellow-300">
                   <Crown className="w-3 h-3" /> {equippedTitle.label}
                 </div>
-                <p className="break-all text-xs text-muted-foreground sm:text-sm">{user?.email}</p>
+                {profile?.status_text && <p className="mt-2 inline-block rounded-lg bg-white/5 px-2 py-1 text-xs">{profile?.status_emoji || "✨"} {profile.status_text}</p>}
                 {profile?.favorite_anime && <p className="text-xs text-primary mt-1">Manga préféré : {profile.favorite_anime}</p>}
+                {profile?.location && <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground"><MapPin className="h-3 w-3" />{profile.location}</p>}
                 {profile?.bio && <p className="text-sm text-muted-foreground mt-2 max-w-xl">{profile.bio}</p>}
+                {profile?.social_links?.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{profile.social_links.map((link,index) => <a key={index} href={link.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] hover:bg-white/10"><Link2 className="h-3 w-3" />{link.label}</a>)}</div>}
               </div>
               <Dialog>
                 <DialogTrigger asChild>
@@ -136,14 +143,16 @@ export default function Profile() {
                     <Settings className="w-4 h-4" />
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-5xl max-h-[94vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle className="font-display">Personnaliser le Profil</DialogTitle>
                   </DialogHeader>
-                  <ProfileCustomization profile={profile} user={user} onUpdated={checkUserAuth} />
+                  <ProfileCustomization profile={profile} user={user} cards={cards} onUpdated={checkUserAuth} />
                 </DialogContent>
               </Dialog>
             </div>
+
+            {showcaseCards.length > 0 && <div className="mt-5 border-t border-white/10 pt-4"><p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Vitrine de collection</p><div className="grid max-w-md grid-cols-3 gap-3">{showcaseCards.map(card => <div key={card.id} className="overflow-hidden rounded-xl border border-white/10 bg-black/20"><img src={card.image_url} alt={card.name} className="aspect-[2/3] w-full object-cover object-top" /><p className="truncate p-1.5 text-center text-[9px] font-bold">{card.name}</p></div>)}</div></div>}
 
             {/* XP Bar */}
             <div className="mt-4 p-3 rounded-xl bg-secondary/50 border border-border">

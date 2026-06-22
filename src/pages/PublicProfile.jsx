@@ -1,0 +1,35 @@
+import React from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link2, MapPin, Package, Shield, Swords, User } from "lucide-react";
+import { useParams } from "react-router-dom";
+import { appClient } from "@/api/appClient";
+import Navbar from "@/components/game/Navbar";
+import { BANNER_COLORS, PROFILE_THEMES } from "@/components/profile/ProfileCustomization";
+import { PROFILE_TITLES } from "@/lib/achievements";
+import { getLevelFromXp } from "@/lib/gameData";
+
+export default function PublicProfile() {
+  const { userId } = useParams();
+  const { data: response, isLoading, error } = useQuery({ queryKey: ["public_profile", userId], queryFn: () => appClient.functions.invoke("getPublicProfile", { user_id: userId }) });
+  const { data: customTitles = [] } = useQuery({ queryKey: ["public_titles"], queryFn: () => appClient.entities.TitleDefinition.list("requirement_value") });
+  const data = response?.data;
+  if (isLoading) return <div className="min-h-screen md:pt-14"><Navbar /><p className="py-24 text-center text-muted-foreground">Chargement du profil…</p></div>;
+  if (error || !data) return <div className="min-h-screen md:pt-14"><Navbar /><p className="py-24 text-center text-muted-foreground">{error?.message || "Profil introuvable."}</p></div>;
+  const profile = data.profile;
+  const banner = BANNER_COLORS.find(item => item.id === profile.banner_id) || BANNER_COLORS[0];
+  const theme = PROFILE_THEMES.find(item => item.id === profile.profile_theme) || PROFILE_THEMES[0];
+  const title = PROFILE_TITLES.find(item => item.id === profile.equipped_title_id)?.label || customTitles.find(item => `custom_${item.id}` === profile.equipped_title_id)?.label || "Nouveau Collectionneur";
+  const level = getLevelFromXp(profile.xp || 0).level;
+  return <div className="min-h-screen pb-24 md:pb-8 md:pt-14"><Navbar /><main className="mx-auto max-w-3xl px-3 py-6 sm:px-4"><article className={`overflow-hidden rounded-3xl border bg-gradient-to-b ${theme.card}`} style={{borderColor:`${profile.accent_color || "#8b5cf6"}66`,boxShadow:profile.profile_effect === "glow" ? `0 0 40px ${profile.accent_color}44` : undefined}}>
+    <div className={`relative h-40 bg-gradient-to-r ${banner.gradient}`}>{profile.banner_url && <img src={profile.banner_url} alt="Bannière" className="h-full w-full object-cover" />}{profile.profile_effect === "sparkles" && <div className="absolute inset-0 shimmer" />}</div>
+    <div className="relative -mt-14 p-5 sm:p-7"><div className="relative h-28 w-28 overflow-hidden rounded-full border-[6px] border-slate-950 bg-slate-800">{profile.avatar_url ? <img src={profile.avatar_url} alt="Avatar" className="h-full w-full object-cover" /> : <User className="m-8 h-10 w-10" />}<span className={`absolute bottom-1 right-1 h-5 w-5 rounded-full border-2 border-slate-950 ${profile.presence_style === "idle" ? "bg-yellow-400" : profile.presence_style === "dnd" ? "bg-red-500" : profile.presence_style === "invisible" ? "bg-slate-500" : "bg-emerald-400"}`} /></div>
+      <div className="mt-3 flex flex-wrap items-baseline gap-2"><h1 className="font-display text-3xl font-black" style={{color:profile.accent_color}}>{profile.display_name || "Joueur"}</h1>{profile.pronouns && <span className="text-xs text-white/40">{profile.pronouns}</span>}</div>
+      {profile.show_badges !== false && <p className="mt-1 text-xs font-bold text-yellow-300">♛ {title}</p>}{profile.status_text && <p className="mt-3 inline-block rounded-xl bg-white/5 px-3 py-2 text-sm">{profile.status_emoji || "✨"} {profile.status_text}</p>}
+      <div className="mt-4 flex flex-wrap gap-3 text-xs text-white/50">{profile.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{profile.location}</span>}{profile.favorite_anime && <span>♡ {profile.favorite_anime}</span>}</div>{profile.bio && <p className="mt-4 max-w-xl whitespace-pre-wrap text-sm leading-relaxed text-white/70">{profile.bio}</p>}
+      {profile.social_links?.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{profile.social_links.map((link,index) => <a key={index} href={link.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs"><Link2 className="h-3 w-3" />{link.label}</a>)}</div>}
+      {profile.show_stats !== false && <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">{[["Niveau",level,Shield],["Cartes",data.collection_size,Package],["Victoires PvE",profile.pve_wins||0,Swords],["Boosters",profile.boosters_opened||0,Package]].map(([label,value,Icon]) => <div key={label} className="rounded-xl bg-white/5 p-3"><Icon className="mb-1 h-4 w-4" style={{color:profile.accent_color}}/><p className="text-lg font-black">{value}</p><p className="text-[9px] text-white/40">{label}</p></div>)}</div>}
+      {data.showcase?.length > 0 && <div className="mt-7"><p className="mb-3 text-xs font-bold uppercase tracking-widest text-white/40">Vitrine de collection</p><div className="grid grid-cols-3 gap-3">{data.showcase.map(card => <div key={card.id} className="overflow-hidden rounded-xl border border-white/10 bg-black/20"><img src={card.image_url} alt={card.name} className="aspect-[2/3] w-full object-cover object-top"/><p className="truncate p-2 text-center text-[10px] font-bold">{card.name}</p></div>)}</div></div>}
+      {data.activity?.length > 0 && <div className="mt-7"><p className="mb-3 text-xs font-bold uppercase tracking-widest text-white/40">Activité récente</p><div className="space-y-2">{data.activity.map((item,index) => <div key={`${item.created_date}-${index}`} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-xs"><span className="truncate">{item.label}</span><span className="ml-3 shrink-0 text-[9px] text-white/30">{new Date(item.created_date).toLocaleDateString("fr-FR")}</span></div>)}</div></div>}
+      <p className="mt-7 text-[10px] text-white/30">Membre depuis {new Date(profile.created_date).toLocaleDateString("fr-FR")}</p>
+    </div></article></main></div>;
+}
