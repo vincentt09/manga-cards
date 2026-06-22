@@ -131,7 +131,7 @@ export default function Encyclopedia() {
     return visibleCatalog
       .filter(c => {
         const key = `${c.name}|${c.anime}|${c.rarity}|${c.variant || ""}`;
-        const owned = card.is_owned_only || ownedDefinitionIds.has(card.id) || ownedSet.has(key);
+        const owned = c.is_owned_only || ownedDefinitionIds.has(c.id) || ownedSet.has(key);
         if (ownedFilter === "owned" && !owned) return false;
         if (ownedFilter === "missing" && owned) return false;
         if (rarityFilter !== "all" && c.rarity !== rarityFilter) return false;
