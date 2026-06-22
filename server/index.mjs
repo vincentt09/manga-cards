@@ -730,7 +730,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
       const found = db.users.find((item) => item.id === action); if (!found) return json(res, 404, { message: "Utilisateur introuvable." });
       if (found.id === user.id) return json(res, 400, { message: "Tu ne peux pas supprimer ton propre compte administrateur." });
       if (found.role === "admin" && db.users.filter((candidate) => candidate.role === "admin").length <= 1) return json(res, 400, { message: "Le dernier administrateur ne peut pas être supprimé." });
-      const belongsToUser = (row) => [row.created_by_id, row.user_id, row.owner_id, row.seller_id].includes(found.id)
+      const belongsToUser = (row) => [row.created_by_id, row.user_id, row.owner_id, row.seller_id, row.requester_id, row.recipient_id].includes(found.id)
         || row.created_by === found.email;
       const removedByEntity = {};
       for (const [entityName, rows] of Object.entries(db.entities)) {
@@ -762,7 +762,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     return json(res, 403, { message: "Operation interdite sur les utilisateurs." });
   }
   db.entities[name] ||= []; const rows = db.entities[name];
-  const privateEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization"]);
+  const privateEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "UserCosmetic", "ProfileCustomization"]);
   const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats", "TitleDefinition"]);
   const collaborativeEntities = new Set();
   const canAccess = (row) => user.role === "admin" || !privateEntities.has(name) || row.created_by_id === user.id;
@@ -858,7 +858,62 @@ async function runFunction(req, res, name, db, user) {
   const profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let result;
 
-  if (name === "updateProfileCustomization") {
+  if (name === "getFriendsState") {
+    const friendships = entities.Friendship || [];
+    const decorate = (targetId, relation) => {
+      const targetUser = db.users.find(candidate => candidate.id === targetId);
+      const targetProfile = (entities.PlayerProfile || []).find(candidate => candidate.created_by_id === targetId);
+      if (!targetUser || !targetProfile) return null;
+      return { id: relation.id, user_id: targetId, display_name: targetProfile.display_name || targetUser.full_name || "Joueur", avatar_url: targetProfile.avatar_url || targetUser.avatar_url || null, status_text: targetProfile.status_text || "", status_emoji: targetProfile.status_emoji || "", presence_style: targetProfile.presence_style || "invisible", player_level: getLevelFromXp(Number(targetProfile.xp || 0)).level, since: relation.accepted_at || relation.created_date };
+    };
+    const accepted = friendships.filter(row => row.status === "accepted" && [row.requester_id, row.recipient_id].includes(user.id));
+    const incoming = friendships.filter(row => row.status === "pending" && row.recipient_id === user.id);
+    const outgoing = friendships.filter(row => row.status === "pending" && row.requester_id === user.id);
+    result = {
+      friends: accepted.map(row => decorate(row.requester_id === user.id ? row.recipient_id : row.requester_id, row)).filter(Boolean).sort((a, b) => a.display_name.localeCompare(b.display_name, "fr")),
+      incoming: incoming.map(row => decorate(row.requester_id, row)).filter(Boolean),
+      outgoing: outgoing.map(row => decorate(row.recipient_id, row)).filter(Boolean),
+    };
+  } else if (name === "searchFriendPlayers") {
+    const query = String(input.query || "").replace(/\s+/g, " ").trim().toLocaleLowerCase("fr");
+    if (query.length < 2) return json(res, 400, { message: "Entre au moins 2 caractères." });
+    const friendships = entities.Friendship || [];
+    result = (entities.PlayerProfile || []).filter(candidate => candidate.created_by_id !== user.id && String(candidate.display_name || "").toLocaleLowerCase("fr").includes(query)).slice(0, 20).map(candidate => {
+      const targetUser = db.users.find(row => row.id === candidate.created_by_id);
+      const relation = friendships.find(row => [row.requester_id, row.recipient_id].includes(user.id) && [row.requester_id, row.recipient_id].includes(candidate.created_by_id));
+      let relationStatus = "none";
+      if (relation?.status === "accepted") relationStatus = "friend";
+      else if (relation?.status === "blocked") relationStatus = "blocked";
+      else if (relation?.status === "pending") relationStatus = relation.requester_id === user.id ? "outgoing" : "incoming";
+      return { user_id: candidate.created_by_id, display_name: candidate.display_name || targetUser?.full_name || "Joueur", avatar_url: candidate.avatar_url || targetUser?.avatar_url || null, player_level: getLevelFromXp(Number(candidate.xp || 0)).level, relation_status: relationStatus, friendship_id: relation?.id || null };
+    });
+  } else if (name === "sendFriendRequest") {
+    const targetId = String(input.user_id || "");
+    if (!targetId || targetId === user.id) return json(res, 400, { message: "Tu ne peux pas t’ajouter toi-même." });
+    if (!db.users.some(candidate => candidate.id === targetId)) return json(res, 404, { message: "Joueur introuvable." });
+    entities.Friendship ||= [];
+    const existing = entities.Friendship.find(row => [row.requester_id, row.recipient_id].includes(user.id) && [row.requester_id, row.recipient_id].includes(targetId));
+    if (existing?.status === "accepted") return json(res, 409, { message: "Vous êtes déjà amis." });
+    if (existing?.status === "blocked") return json(res, 403, { message: "Cette demande ne peut pas être envoyée." });
+    if (existing?.status === "pending") return json(res, 409, { message: existing.requester_id === user.id ? "Demande déjà envoyée." : "Ce joueur t’a déjà envoyé une demande." });
+    const now = new Date().toISOString();
+    const friendship = { id: id(), requester_id: user.id, recipient_id: targetId, status: "pending", created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now };
+    entities.Friendship.push(friendship); result = friendship;
+  } else if (name === "manageFriendship") {
+    const friendship = (entities.Friendship || []).find(row => row.id === input.friendship_id && [row.requester_id, row.recipient_id].includes(user.id));
+    if (!friendship) return json(res, 404, { message: "Relation introuvable." });
+    const action = String(input.action || "");
+    if (action === "accept") {
+      if (friendship.status !== "pending" || friendship.recipient_id !== user.id) return json(res, 403, { message: "Cette demande ne peut pas être acceptée." });
+      friendship.status = "accepted"; friendship.accepted_at = new Date().toISOString(); friendship.updated_date = friendship.accepted_at; result = friendship;
+    } else if (["decline", "cancel", "remove"].includes(action)) {
+      if (action === "decline" && friendship.recipient_id !== user.id) return json(res, 403, { message: "Action interdite." });
+      if (action === "cancel" && friendship.requester_id !== user.id) return json(res, 403, { message: "Action interdite." });
+      entities.Friendship = entities.Friendship.filter(row => row.id !== friendship.id); result = { removed: true };
+    } else if (action === "block") {
+      friendship.status = "blocked"; friendship.blocked_by_id = user.id; friendship.updated_date = new Date().toISOString(); result = friendship;
+    } else return json(res, 400, { message: "Action d’amitié invalide." });
+  } else if (name === "updateProfileCustomization") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     const displayName = String(input.display_name || "").replace(/\s+/g, " ").trim();
     if (displayName.length < 3 || displayName.length > 24) return json(res, 400, { message: "Le pseudo doit contenir entre 3 et 24 caractères." });
@@ -920,7 +975,9 @@ async function runFunction(req, res, name, db, user) {
       ...(entities.PveBattle || []).filter(row => row.created_by_id === targetUserId).map(row => ({ type: "pve", label: `${row.victory ? "Victoire" : "Défaite"} contre ${row.boss_name}`, created_date: row.created_date })),
       ...(entities.Transaction || []).filter(row => row.created_by_id === targetUserId).map(row => ({ type: row.type, label: String(row.description || row.type || "Activité").slice(0, 100), created_date: row.created_date })),
     ].sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, 5) : [];
-    result = { user_id: targetUserId, profile: safeProfile, showcase, activity, collection_size: (entities.Card || []).filter(card => card.created_by_id === targetUserId).length };
+    const relation = (entities.Friendship || []).find(row => [row.requester_id, row.recipient_id].includes(user.id) && [row.requester_id, row.recipient_id].includes(targetUserId));
+    const friendship = !relation ? { status: "none" } : relation.status === "accepted" ? { id: relation.id, status: "friend" } : relation.status === "blocked" ? { id: relation.id, status: "blocked" } : { id: relation.id, status: relation.requester_id === user.id ? "outgoing" : "incoming" };
+    result = { user_id: targetUserId, profile: safeProfile, showcase, activity, friendship, is_owner: targetUserId === user.id, collection_size: (entities.Card || []).filter(card => card.created_by_id === targetUserId).length };
   } else if (name === "getTitleCatalog") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     result = (entities.TitleDefinition || [])
@@ -1081,7 +1138,7 @@ async function runFunction(req, res, name, db, user) {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const validUserIds = new Set(db.users.map((candidate) => candidate.id));
     const validEmails = new Set(db.users.map((candidate) => candidate.email));
-    const playerEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
+    const playerEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
     const removed = {};
     for (const entityName of playerEntities) {
       const rows = entities[entityName] || [];
@@ -1089,6 +1146,8 @@ async function runFunction(req, res, name, db, user) {
         if (row.created_by_id && !validUserIds.has(row.created_by_id)) return false;
         if (!row.created_by_id && row.created_by && !validEmails.has(row.created_by)) return false;
         if (row.seller_id && row.seller_id !== "system" && !validUserIds.has(row.seller_id)) return false;
+        if (row.requester_id && !validUserIds.has(row.requester_id)) return false;
+        if (row.recipient_id && !validUserIds.has(row.recipient_id)) return false;
         return true;
       });
       removed[entityName] = rows.length - kept.length;

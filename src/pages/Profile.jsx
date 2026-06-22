@@ -17,6 +17,7 @@ import { getLevelFromXp, RARITY_CONFIG } from "@/lib/gameData";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import ProfileCustomization, { BANNER_COLORS, PROFILE_THEMES } from "@/components/profile/ProfileCustomization";
+import FriendsPanel from "@/components/profile/FriendsPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 function StatCard({ icon: Icon, label, value, color }) {
@@ -175,6 +176,8 @@ export default function Profile() {
             </div>
           </div>
         </motion.div>
+
+        <FriendsPanel />
 
         {/* Stats Grid */}
         {isLoading ? (
