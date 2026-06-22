@@ -20,7 +20,7 @@ function CardEntry({ cardDef, owned }) {
       className={`relative rounded-xl overflow-hidden border-2 ${owned ? rarity.borderColor : "border-border/30"} group`}
     >
       <div className="relative h-36 overflow-hidden">
-        {!owned || imgErr ? (
+        {!owned || !cardDef.image_url || imgErr ? (
           <div className={`w-full h-full flex items-center justify-center ${owned ? "bg-secondary" : "bg-secondary/30"}`}>
             {owned ? (
               <span className="text-3xl font-display font-black opacity-20 text-white">?</span>
@@ -96,10 +96,23 @@ export default function Encyclopedia() {
     queryKey: ["cardImageOverrides"],
     queryFn: () => appClient.entities.CardImageOverride.list(),
   });
-  const visibleCatalog = useMemo(() => catalogCards.map(card => {
-    const override = imageOverrides.find(item => item.card_id === card.id);
-    return override ? { ...card, image_url: override.image_url } : card;
-  }), [catalogCards, imageOverrides]);
+  const visibleCatalog = useMemo(() => {
+    const definitions = catalogCards.map(card => {
+      const override = imageOverrides.find(item => item.card_id === card.id);
+      return override ? { ...card, image_url: override.image_url } : card;
+    });
+    const definitionIds = new Set(definitions.map(card => card.id));
+    const definitionKeys = new Set(definitions.map(card => `${card.name}|${card.anime}|${card.rarity}|${card.variant || ""}`));
+    const ownedOnly = myCards
+      .filter(card => !definitionIds.has(card.card_definition_id) && !definitionKeys.has(`${card.name}|${card.anime}|${card.rarity}|${card.variant || ""}`))
+      .map(card => ({
+        id: `owned_${card.id}`, owned_card_id: card.id, name: card.name, anime: card.anime || "Événement spécial",
+        rarity: card.rarity, variant: card.variant || "", image_url: card.image_url || null,
+        basePower: card.power, baseAttack: card.attack, baseDefense: card.defense, baseSpeed: card.speed,
+        collection_id: card.collection_id || null, edition: card.edition || "event", is_owned_only: true,
+      }));
+    return [...definitions, ...ownedOnly];
+  }, [catalogCards, imageOverrides, myCards]);
 
   const profile = profiles[0];
 
@@ -109,6 +122,8 @@ export default function Encyclopedia() {
     myCards.forEach(c => s.add(`${c.name}|${c.anime}|${c.rarity}|${c.variant || ""}`));
     return s;
   }, [myCards]);
+  const ownedDefinitionIds = useMemo(() => new Set(myCards.map(card => card.card_definition_id).filter(Boolean)), [myCards]);
+  const isOwned = card => card.is_owned_only || ownedDefinitionIds.has(card.id) || ownedSet.has(`${card.name}|${card.anime}|${card.rarity}|${card.variant || ""}`);
 
   const animes = useMemo(() => [...new Set(visibleCatalog.map(c => c.anime))], [visibleCatalog]);
 
@@ -116,7 +131,7 @@ export default function Encyclopedia() {
     return visibleCatalog
       .filter(c => {
         const key = `${c.name}|${c.anime}|${c.rarity}|${c.variant || ""}`;
-        const owned = ownedSet.has(key);
+        const owned = card.is_owned_only || ownedDefinitionIds.has(card.id) || ownedSet.has(key);
         if (ownedFilter === "owned" && !owned) return false;
         if (ownedFilter === "missing" && owned) return false;
         if (rarityFilter !== "all" && c.rarity !== rarityFilter) return false;
@@ -128,11 +143,12 @@ export default function Encyclopedia() {
         return true;
       })
       .sort((a, b) => (RARITY_ORDER[b.rarity] || 0) - (RARITY_ORDER[a.rarity] || 0));
-  }, [search, rarityFilter, animeFilter, ownedFilter, ownedSet, visibleCatalog]);
+  }, [search, rarityFilter, animeFilter, ownedFilter, ownedSet, ownedDefinitionIds, visibleCatalog]);
 
   const totalOwned = useMemo(() =>
-    CARD_POOL.filter(c => ownedSet.has(`${c.name}|${c.anime}|${c.rarity}|${c.variant || ""}`)).length
-  , [ownedSet]);
+    visibleCatalog.filter(isOwned).length
+  , [visibleCatalog, ownedSet, ownedDefinitionIds]);
+  const totalCatalog = Math.max(1, visibleCatalog.length);
 
   return (
     <div className="min-h-screen pb-20 md:pb-4 md:pt-14">
@@ -147,13 +163,13 @@ export default function Encyclopedia() {
               <BookOpen className="w-6 h-6 text-accent" />Encyclopédie
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              <span className="text-accent font-bold">{totalOwned}</span> / {CARD_POOL.length} cartes découvertes
+              <span className="text-accent font-bold">{totalOwned}</span> / {visibleCatalog.length} cartes découvertes
             </p>
           </div>
           {/* Completion badge */}
           <div className="text-right">
             <div className="text-2xl font-display font-black text-accent">
-              {Math.round((totalOwned / CARD_POOL.length) * 100)}%
+              {Math.round((totalOwned / totalCatalog) * 100)}%
             </div>
             <div className="text-[10px] text-muted-foreground">complété</div>
           </div>
@@ -163,7 +179,7 @@ export default function Encyclopedia() {
         <div className="mb-5 h-2.5 bg-secondary rounded-full overflow-hidden">
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: `${(totalOwned / CARD_POOL.length) * 100}%` }}
+            animate={{ width: `${(totalOwned / totalCatalog) * 100}%` }}
             transition={{ duration: 1, type: "spring" }}
             className="h-full rounded-full bg-gradient-to-r from-accent to-primary"
           />
@@ -210,9 +226,8 @@ export default function Encyclopedia() {
         {/* Grid */}
         <div className="grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
           {filtered.map(cardDef => {
-            const key = `${cardDef.name}|${cardDef.anime}|${cardDef.rarity}|${cardDef.variant || ""}`;
             return (
-              <CardEntry key={cardDef.id} cardDef={cardDef} owned={ownedSet.has(key)} />
+              <CardEntry key={cardDef.id} cardDef={cardDef} owned={isOwned(cardDef)} />
             );
           })}
         </div>

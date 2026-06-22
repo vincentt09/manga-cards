@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Users, Shield, Crown, Star, Search, Edit2, Save, UserCheck, Mail, Calendar, TrendingUp, Coins, Gem, AlertTriangle, Trash2, Ban, CheckCircle2, RotateCcw, Activity } from "lucide-react";
+import { Users, Shield, Crown, Star, Search, Edit2, Save, UserCheck, Mail, Calendar, TrendingUp, Coins, Gem, AlertTriangle, Trash2, Ban, CheckCircle2, RotateCcw, Activity, Gift, Frame } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
@@ -33,8 +34,19 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
   const [resetTarget, setResetTarget] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({});
+  const [giftCardId, setGiftCardId] = useState("");
+  const [giftCardQuantity, setGiftCardQuantity] = useState(1);
+  const [giftFrameId, setGiftFrameId] = useState("");
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const getProfile = userId => profiles.find(profile => profile.created_by_id === userId);
+  const { data: cardDefinitions = [] } = useQuery({ queryKey: ["admin_user_card_catalog"], queryFn: () => appClient.entities.CardDefinition.list("anime", 1000) });
+  const { data: frameCatalog = [] } = useQuery({ queryKey: ["admin_user_frame_catalog"], queryFn: () => appClient.entities.CardFrame.list("name", 500) });
+  const { data: playerControl, refetch: refetchPlayerControl, isFetching: playerControlLoading } = useQuery({
+    queryKey: ["admin_player_control", selectedId],
+    queryFn: async () => (await appClient.functions.invoke("getAdminPlayerControl", { user_id: selectedId })).data,
+    enabled: Boolean(selectedId),
+  });
 
   const filteredUsers = useMemo(() => users.filter(item => {
     const query = search.trim().toLowerCase();
@@ -128,6 +140,54 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
     } finally { setSaving(false); }
   };
 
+  const grantCard = async () => {
+    if (!selectedUser || !giftCardId || saving) return;
+    setSaving(true);
+    try {
+      const response = await appClient.functions.invoke("adminGrantPlayerCard", { user_id: selectedUser.id, card_definition_id: giftCardId, quantity: numberValue(giftCardQuantity) || 1 });
+      await Promise.all([refetchPlayerControl(), onUserUpdate?.()]);
+      await queryClient.invalidateQueries({ queryKey: ["cards"] });
+      toast({ title: "Carte offerte", description: `${response.data.card.name} apparaît maintenant dans la collection et l’encyclopédie.` });
+    } catch (error) { toast({ title: "Cadeau impossible", description: error.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const revokeCard = async card => {
+    if (!selectedUser || saving) return;
+    setSaving(true);
+    try {
+      await appClient.functions.invoke("adminRevokePlayerCard", { user_id: selectedUser.id, card_id: card.id });
+      await refetchPlayerControl();
+      await queryClient.invalidateQueries({ queryKey: ["cards"] });
+      toast({ title: "Carte retirée", description: `${card.name} a été retirée du joueur.` });
+    } catch (error) { toast({ title: "Retrait impossible", description: error.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const grantFrame = async () => {
+    if (!selectedUser || !giftFrameId || saving) return;
+    setSaving(true);
+    try {
+      const response = await appClient.functions.invoke("adminGrantPlayerFrame", { user_id: selectedUser.id, frame_id: giftFrameId });
+      await refetchPlayerControl();
+      await queryClient.invalidateQueries({ queryKey: ["myFrames"] });
+      toast({ title: "Cadre offert", description: `${response.data.frame.name} est maintenant possédé par le joueur.` });
+    } catch (error) { toast({ title: "Cadeau impossible", description: error.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const revokeFrame = async owned => {
+    if (!selectedUser || saving) return;
+    setSaving(true);
+    try {
+      await appClient.functions.invoke("adminRevokePlayerFrame", { user_id: selectedUser.id, player_frame_id: owned.id });
+      await refetchPlayerControl();
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ["myFrames"] }), queryClient.invalidateQueries({ queryKey: ["cards"] })]);
+      toast({ title: "Cadre retiré" });
+    } catch (error) { toast({ title: "Retrait impossible", description: error.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row">
@@ -161,7 +221,7 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
 
       {!filteredUsers.length && <div className="text-center py-12 text-muted-foreground"><Users className="w-12 h-12 mx-auto mb-3" />Aucun utilisateur trouvé</div>}
 
-      <Dialog open={!!selectedId} onOpenChange={open => !open && setSelectedId(null)}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Gérer le compte</DialogTitle><DialogDescription>{selectedUser?.email}</DialogDescription></DialogHeader>
+      <Dialog open={!!selectedId} onOpenChange={open => !open && setSelectedId(null)}><DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto"><DialogHeader><DialogTitle>Centre de contrôle joueur</DialogTitle><DialogDescription>{selectedUser?.email} · compte, progression, cartes et cadres réunis au même endroit</DialogDescription></DialogHeader>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="text-xs font-semibold">Pseudo<Input className="mt-1.5" value={form.full_name || ""} onChange={event => setForm(current => ({ ...current, full_name: event.target.value }))} /></label>
           <label className="text-xs font-semibold">Rôle<select className="mt-1.5 w-full h-10 rounded-md border border-input bg-background px-3" value={form.role || "user"} onChange={event => setForm(current => ({ ...current, role: event.target.value }))}>{ROLES.map(role => <option key={role.id} value={role.id}>{role.label}</option>)}</select></label>
@@ -173,6 +233,20 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
           {form.status === "suspended" && <label className="text-xs font-semibold">Fin de suspension (optionnelle)<Input type="datetime-local" className="mt-1.5" value={form.suspended_until || ""} onChange={event => setForm(current => ({ ...current, suspended_until: event.target.value }))} /></label>}
           {form.status === "suspended" && <label className="text-xs font-semibold sm:col-span-2">Motif<Input className="mt-1.5" placeholder="Message affiché au joueur" value={form.suspension_reason || ""} onChange={event => setForm(current => ({ ...current, suspension_reason: event.target.value }))} /></label>}
         </div>
+        <section className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 font-bold"><Gift className="h-4 w-4 text-primary" />Offrir une carte</h3><p className="text-xs text-muted-foreground">Catalogue complet, événements et collectors inclus.</p></div><span className="text-xs text-muted-foreground">{playerControl?.stats?.unique_cards || 0} uniques · {playerControl?.stats?.total_copies || 0} exemplaires</span></div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_90px_auto]">
+            <select aria-label="Carte à offrir" value={giftCardId} onChange={event => setGiftCardId(event.target.value)} className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm"><option value="">Choisir une carte…</option>{cardDefinitions.filter(card => card.is_active !== false).map(card => <option key={card.id} value={card.id}>{card.anime} · {card.name} · {card.rarity}{card.is_collector ? " · Collector" : ""}</option>)}</select>
+            <Input aria-label="Quantité" type="number" min="1" max="100" value={giftCardQuantity} onChange={event => setGiftCardQuantity(event.target.value)} />
+            <Button disabled={!giftCardId || saving} onClick={grantCard}><Gift className="mr-1.5 h-4 w-4" />Offrir</Button>
+          </div>
+          <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-border/60 bg-background/50 p-2">{playerControlLoading ? <p className="p-3 text-xs text-muted-foreground">Chargement de l’inventaire…</p> : playerControl?.cards?.length ? playerControl.cards.map(card => <div key={card.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-secondary/40"><div className="h-9 w-7 shrink-0 overflow-hidden rounded bg-secondary">{card.image_url && <img src={card.image_url} alt="" className="h-full w-full object-cover" />}</div><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{card.name} <span className="text-muted-foreground">×{card.duplicates || 1}</span></p><p className="truncate text-[10px] text-muted-foreground">{card.anime} · {card.rarity} · niveau {card.level || 1}</p></div><Button size="sm" variant="ghost" disabled={saving} onClick={() => revokeCard(card)} className="h-8 text-red-400"><Trash2 className="h-3.5 w-3.5" /></Button></div>) : <p className="p-3 text-xs text-muted-foreground">Aucune carte possédée.</p>}</div>
+        </section>
+        <section className="space-y-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 font-bold"><Frame className="h-4 w-4 text-cyan-400" />Offrir un cadre</h3><p className="text-xs text-muted-foreground">Le cadre apparaît immédiatement dans la collection du joueur.</p></div><span className="text-xs text-muted-foreground">{playerControl?.stats?.frames || 0} possédé(s)</span></div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]"><select aria-label="Cadre à offrir" value={giftFrameId} onChange={event => setGiftFrameId(event.target.value)} className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm"><option value="">Choisir un cadre…</option>{frameCatalog.filter(frame => frame.is_active !== false).map(frame => <option key={frame.id} value={frame.id}>{frame.name} · {frame.rarity}</option>)}</select><Button disabled={!giftFrameId || saving} onClick={grantFrame}><Frame className="mr-1.5 h-4 w-4" />Offrir</Button></div>
+          <div className="grid max-h-40 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">{playerControl?.frames?.length ? playerControl.frames.map(owned => <div key={owned.id} className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/50 p-2"><div className="relative h-12 w-8 shrink-0 overflow-hidden rounded bg-secondary">{owned.frame?.image_url && <img src={owned.frame.image_url} alt="" className="absolute inset-0 h-full w-full object-fill" />}</div><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{owned.frame?.name || "Cadre supprimé"}</p><p className="text-[10px] text-muted-foreground">{owned.frame?.rarity || "inconnu"}</p></div><Button size="sm" variant="ghost" disabled={saving} onClick={() => revokeFrame(owned)} className="h-8 text-red-400"><Trash2 className="h-3.5 w-3.5" /></Button></div>) : <p className="p-3 text-xs text-muted-foreground">Aucun cadre possédé.</p>}</div>
+        </section>
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" />Les changements de solde, profil et accès sont appliqués immédiatement.</div>
         <DialogFooter className="gap-2 sm:justify-between"><Button variant="outline" className="border-orange-500/30 text-orange-300" disabled={selectedUser?.id === currentUser?.id} onClick={() => setResetTarget(selectedUser)}><RotateCcw className="mr-1.5 h-4 w-4" />Réinitialiser la progression</Button><div className="flex gap-2"><Button variant="outline" onClick={() => setSelectedId(null)}>Annuler</Button><Button disabled={saving || !form.full_name?.trim()} onClick={saveUser}><Save className="w-4 h-4 mr-1.5" />Enregistrer</Button></div></DialogFooter>
       </DialogContent></Dialog>

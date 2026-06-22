@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { appClient } from "@/api/appClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Search, Star, Grid, List, Layers, Filter, SlidersHorizontal, TrendingUp, RotateCcw } from "lucide-react";
+import { Search, Star, Grid, List, Layers, Filter, SlidersHorizontal, TrendingUp, RotateCcw, Frame as FrameIcon, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -43,12 +43,17 @@ export default function Collection() {
     queryKey: ["frames"],
     queryFn: () => appClient.entities.CardFrame.list(),
   });
+  const { data: playerFrames = [] } = useQuery({
+    queryKey: ["myFrames"],
+    queryFn: () => appClient.entities.PlayerFrame.list(),
+  });
 
   const { data: profiles = [] } = useQuery({
     queryKey: ["profile"],
     queryFn: () => appClient.entities.PlayerProfile.list(),
   });
   const profile = profiles[0];
+  const ownedFrames = useMemo(() => playerFrames.filter(owned => owned.is_unlocked).map(owned => ({ ...owned, definition: frames.find(frame => frame.id === owned.frame_id) })).filter(owned => owned.definition), [playerFrames, frames]);
 
   useEffect(() => localStorage.setItem("collection_sort", sortBy), [sortBy]);
   useEffect(() => localStorage.setItem("collection_view", viewMode), [viewMode]);
@@ -185,6 +190,11 @@ export default function Collection() {
             ))}
           </div>
         </motion.div>
+
+        <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mb-6 rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 via-card to-card p-4">
+          <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="flex items-center gap-2 font-display font-bold"><FrameIcon className="h-5 w-5 text-cyan-400" />Mes cadres</h2><p className="mt-1 text-xs text-muted-foreground">Les cadres débloqués font partie de ta collection et peuvent être appliqués à tes cartes.</p></div><span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-300">{ownedFrames.length}</span></div>
+          {ownedFrames.length ? <div className="flex gap-3 overflow-x-auto pb-2 [scrollbar-width:thin]">{ownedFrames.map(owned => <article key={owned.id} className="flex w-44 shrink-0 items-center gap-3 rounded-xl border border-border/60 bg-background/60 p-2.5"><div className="relative aspect-[2/3] w-10 shrink-0 overflow-hidden rounded bg-gradient-to-br from-slate-800 to-black"><Sparkles className="absolute left-1 top-1 h-3 w-3 text-cyan-300" />{owned.definition.image_url && <img src={owned.definition.image_url} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-fill" />}</div><div className="min-w-0"><p className="line-clamp-2 text-xs font-bold">{owned.definition.name}</p><p className="mt-1 text-[10px] capitalize text-cyan-300">{owned.definition.rarity || "cadre"}</p></div></article>)}</div> : <div className="rounded-xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">Aucun cadre débloqué pour le moment.</div>}
+        </motion.section>
 
         {/* Contrôles de filtres et tri */}
         <motion.div 

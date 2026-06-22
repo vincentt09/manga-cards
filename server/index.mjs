@@ -1065,6 +1065,90 @@ async function runFunction(req, res, name, db, user) {
     profile.equipped_title_id = titleId;
     profile.updated_date = new Date().toISOString();
     result = { title_id: titleId, label };
+  } else if (name === "getAdminPlayerControl") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
+    if (!target) return json(res, 404, { message: "Utilisateur introuvable." });
+    const targetProfile = (entities.PlayerProfile || []).find((item) => item.created_by_id === target.id);
+    const cards = (entities.Card || []).filter((item) => item.created_by_id === target.id).map((item) => resolvedCard(db, item));
+    const ownedFrames = (entities.PlayerFrame || []).filter((item) => item.created_by_id === target.id).map((owned) => ({
+      ...owned,
+      frame: (entities.CardFrame || []).find((frame) => frame.id === owned.frame_id) || null,
+    }));
+    result = {
+      user: publicUser(target), profile: targetProfile || null, cards, frames: ownedFrames,
+      stats: { unique_cards: cards.length, total_copies: cards.reduce((sum, card) => sum + Math.max(1, Number(card.duplicates || 1)), 0), frames: ownedFrames.length },
+    };
+  } else if (name === "adminGrantPlayerCard") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
+    const definition = (entities.CardDefinition || []).find((item) => item.id === String(input.card_definition_id || "") && item.is_active !== false);
+    if (!target || !definition) return json(res, 404, { message: "Joueur ou carte introuvable." });
+    const quantity = Math.max(1, Math.min(100, Math.floor(Number(input.quantity || 1))));
+    const now = new Date().toISOString();
+    entities.Card ||= [];
+    let card = entities.Card.find((candidate) => candidate.created_by_id === target.id && (candidate.card_definition_id === definition.id || (!candidate.card_definition_id && candidate.name === definition.name && candidate.anime === definition.anime && candidate.rarity === definition.rarity)));
+    if (card) {
+      card.card_definition_id ||= definition.id;
+      card.collection_id ||= definition.collection_id || null;
+      card.edition ||= definition.edition || "standard";
+      card.is_collector = Boolean(card.is_collector || definition.is_collector);
+      card.duplicates = Math.max(1, Number(card.duplicates || 1)) + quantity;
+      card.upgrade_progress = Number(card.upgrade_progress || 0) + quantity;
+      while (Number(card.level || 1) < 100 && card.upgrade_progress >= getDuplicatesForUpgrade(Number(card.level || 1))) {
+        card.upgrade_progress -= getDuplicatesForUpgrade(Number(card.level || 1));
+        card.level = Number(card.level || 1) + 1;
+        card.power = Number(card.power || definition.basePower || 1) + 3;
+        card.attack = Number(card.attack || definition.baseAttack || 1) + 2;
+        card.defense = Number(card.defense || definition.baseDefense || 1) + 2;
+        card.speed = Number(card.speed || definition.baseSpeed || 1) + 1;
+      }
+      card.updated_date = now;
+    } else {
+      card = {
+        id: id(), card_definition_id: definition.id, name: definition.name, anime: definition.anime, rarity: definition.rarity,
+        power: definition.basePower, attack: definition.baseAttack, defense: definition.baseDefense, speed: definition.baseSpeed,
+        image_url: definition.image_url || null, collection_id: definition.collection_id || null, edition: definition.edition || "standard",
+        is_collector: Boolean(definition.is_collector), level: 1, duplicates: quantity, upgrade_progress: Math.max(0, quantity - 1), is_favorite: false,
+        obtained_via: "admin_gift", created_by_id: target.id, created_by: target.email, created_date: now, updated_date: now,
+      };
+      entities.Card.push(card);
+    }
+    entities.Transaction ||= [];
+    entities.Transaction.push({ id: id(), type: "admin_gift", description: `Cadeau admin : ${definition.name} ×${quantity}`, amount: 0, card_name: definition.name, created_by_id: target.id, created_by: target.email, created_date: now });
+    recordAdminAudit(db, user, "player_card_granted", target, { card_definition_id: definition.id, card_name: definition.name, quantity });
+    result = { card: resolvedCard(db, card), quantity };
+  } else if (name === "adminRevokePlayerCard") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
+    const card = (entities.Card || []).find((item) => item.id === String(input.card_id || "") && item.created_by_id === target?.id);
+    if (!target || !card) return json(res, 404, { message: "Joueur ou carte introuvable." });
+    entities.Card = entities.Card.filter((item) => item.id !== card.id);
+    for (const playerFrame of entities.PlayerFrame || []) if (playerFrame.card_id === card.id) playerFrame.card_id = null;
+    recordAdminAudit(db, user, "player_card_revoked", target, { card_id: card.id, card_name: card.name });
+    result = { removed: true };
+  } else if (name === "adminGrantPlayerFrame") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
+    const frame = (entities.CardFrame || []).find((item) => item.id === String(input.frame_id || "") && item.is_active !== false);
+    if (!target || !frame) return json(res, 404, { message: "Joueur ou cadre introuvable." });
+    entities.PlayerFrame ||= [];
+    const existing = entities.PlayerFrame.find((item) => item.created_by_id === target.id && item.frame_id === frame.id);
+    if (existing) return json(res, 409, { message: "Ce joueur possède déjà ce cadre." });
+    const now = new Date().toISOString();
+    const owned = { id: id(), frame_id: frame.id, is_unlocked: true, card_id: null, unlocked_date: now, obtained_via: "admin_gift", created_by_id: target.id, created_by: target.email, created_date: now, updated_date: now };
+    entities.PlayerFrame.push(owned);
+    recordAdminAudit(db, user, "player_frame_granted", target, { frame_id: frame.id, frame_name: frame.name });
+    result = { owned, frame };
+  } else if (name === "adminRevokePlayerFrame") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
+    const owned = (entities.PlayerFrame || []).find((item) => item.id === String(input.player_frame_id || "") && item.created_by_id === target?.id);
+    if (!target || !owned) return json(res, 404, { message: "Joueur ou cadre possédé introuvable." });
+    entities.PlayerFrame = entities.PlayerFrame.filter((item) => item.id !== owned.id);
+    for (const card of entities.Card || []) if (card.created_by_id === target.id && card.applied_frame_id === owned.frame_id) card.applied_frame_id = null;
+    recordAdminAudit(db, user, "player_frame_revoked", target, { frame_id: owned.frame_id });
+    result = { removed: true };
   } else if (name === "getAdminCollections") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     let normalizedAnimeNames = 0;
