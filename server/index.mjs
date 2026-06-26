@@ -23,6 +23,12 @@ const dataDir = path.join(root, "data");
 const dbFile = path.join(dataDir, "database.json");
 const port = Number(process.env.PORT || 8787);
 const frontendUrl = process.env.APP_URL || "http://127.0.0.1:5173";
+const requestOrigin = (req) => {
+  const proto = req.headers["x-forwarded-proto"] || (req.headers.host?.startsWith("127.0.0.1") || req.headers.host?.startsWith("localhost") ? "http" : "https");
+  return `${String(proto).split(",")[0]}://${req.headers.host}`;
+};
+const publicApiUrl = (req) => (process.env.API_URL || requestOrigin(req)).replace(/\/$/, "");
+const appUrl = (req) => (process.env.APP_URL || requestOrigin(req)).replace(/\/$/, "");
 const mongoUri = process.env.MONGODB_URI;
 const mongoDatabaseName = process.env.MONGODB_DATABASE || "manga_cards";
 let mongoClient;
@@ -743,14 +749,14 @@ async function authRoutes(req, res, pathname, db) {
     const requestedPath = requestUrl.searchParams.get("from_url") || "/";
     const returnPath = requestedPath.startsWith("/") && !requestedPath.startsWith("//") ? requestedPath : "/";
     const requestedOrigin = requestUrl.searchParams.get("origin");
-    const allowedOrigins = new Set([frontendUrl, "http://127.0.0.1:5173", "https://manga-cards.pages.dev"]);
-    const returnOrigin = allowedOrigins.has(requestedOrigin) ? requestedOrigin : frontendUrl;
+    const allowedOrigins = new Set([frontendUrl, appUrl(req), requestOrigin(req), "http://127.0.0.1:5173", "https://manga-cards.pages.dev", "https://manga-cards-vincentt09.onrender.com"]);
+    const returnOrigin = allowedOrigins.has(requestedOrigin) ? requestedOrigin : appUrl(req);
     db.oauthStates = db.oauthStates.filter((item) => item.expires_at > Date.now());
     db.oauthStates.push({ state, return_path: returnPath, return_origin: returnOrigin, expires_at: Date.now() + 10 * 60 * 1000 });
     await writeDb(db);
-    const callback = `${process.env.API_URL || `http://127.0.0.1:${port}`}/api/auth/google/callback`;
+    const callback = `${publicApiUrl(req)}/api/auth/google/callback`;
     const target = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    target.search = new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, redirect_uri: callback, response_type: "code", scope: "openid email profile", state }).toString();
+    target.search = new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, redirect_uri: callback, response_type: "code", scope: "openid email profile", state, prompt: "select_account" }).toString();
     return redirect(res, target.toString());
   }
   if (pathname === "/api/auth/google/callback" && req.method === "GET") {
@@ -758,14 +764,23 @@ async function authRoutes(req, res, pathname, db) {
     const state = requestUrl.searchParams.get("state");
     const oauthState = db.oauthStates.find((item) => item.state === state && item.expires_at > Date.now());
     db.oauthStates = db.oauthStates.filter((item) => item.state !== state && item.expires_at > Date.now());
-    if (!code || !oauthState) { await writeDb(db); return redirect(res, `${frontendUrl}/login?error=google_invalid_state`); }
-    const callback = `${process.env.API_URL || `http://127.0.0.1:${port}`}/api/auth/google/callback`;
+    if (!code || !oauthState) { await writeDb(db); return redirect(res, `${appUrl(req)}/login?error=google_invalid_state`); }
+    const callback = `${publicApiUrl(req)}/api/auth/google/callback`;
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uri: callback, grant_type: "authorization_code" }) });
-    if (!tokenResponse.ok) return redirect(res, `${frontendUrl}/login?error=google_failed`);
-    const googleToken = await tokenResponse.json(); const infoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${googleToken.access_token}` } }); const info = await infoResponse.json();
-    let user = db.users.find((item) => item.email === info.email);
-    if (!user) { user = { id: id(), email: info.email, full_name: info.name || "", avatar_url: info.picture, role: db.users.length ? "user" : "admin", provider: "google", created_date: new Date().toISOString() }; db.users.push(user); seedProfile(db, user); }
-    if (isUserSuspended(user)) { await writeDb(db); return redirect(res, `${oauthState.return_origin || frontendUrl}/login?error=account_suspended`); }
+    if (!tokenResponse.ok) { await writeDb(db); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_failed`); }
+    const googleToken = await tokenResponse.json(); const infoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${googleToken.access_token}` } });
+    if (!infoResponse.ok) { await writeDb(db); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_profile_failed`); }
+    const info = await infoResponse.json();
+    const email = String(info.email || "").trim().toLowerCase();
+    if (!email) { await writeDb(db); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_email_missing`); }
+    let user = db.users.find((item) => item.email === email);
+    if (!user) { user = { id: id(), email, full_name: info.name || email.split("@")[0], avatar_url: info.picture, role: db.users.length ? "user" : "admin", provider: "google", created_date: new Date().toISOString() }; db.users.push(user); seedProfile(db, user); }
+    else {
+      user.provider ||= "google";
+      user.avatar_url ||= info.picture || null;
+      if (!user.full_name) user.full_name = info.name || email.split("@")[0];
+    }
+    if (isUserSuspended(user)) { await writeDb(db); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=account_suspended`); }
     ensureUserProfile(db, user);
     user.last_login_at = new Date().toISOString();
     const token = createSession(db, user.id); await writeDb(db);
