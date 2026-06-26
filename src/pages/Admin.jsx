@@ -409,7 +409,7 @@ export default function Admin() {
   });
   const { data: cards = [] } = useQuery({
     queryKey: ["admin_cards"],
-    queryFn: () => appClient.entities.Card.list("-created_date", 500),
+    queryFn: () => appClient.entities.Card.filter({}, "-created_date", 500),
   });
   const { data: transactions = [] } = useQuery({
     queryKey: ["admin_transactions"],

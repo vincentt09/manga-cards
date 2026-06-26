@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Users, Shield, Crown, Star, Search, Edit2, Save, UserCheck, Mail, Calendar, TrendingUp, Coins, Gem, AlertTriangle, Trash2, Ban, CheckCircle2, RotateCcw, Activity, Gift, Frame } from "lucide-react";
+import { Users, Shield, Crown, Star, Search, Edit2, Save, UserCheck, Mail, Calendar, TrendingUp, Coins, Gem, AlertTriangle, Trash2, Ban, CheckCircle2, RotateCcw, Activity, Gift, Frame, Wrench } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,7 +147,7 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
       const response = await appClient.functions.invoke("adminGrantPlayerCard", { user_id: selectedUser.id, card_definition_id: giftCardId, quantity: numberValue(giftCardQuantity) || 1 });
       await Promise.all([refetchPlayerControl(), onUserUpdate?.()]);
       await queryClient.invalidateQueries({ queryKey: ["cards"] });
-      toast({ title: "Carte offerte", description: `${response.data.card.name} apparaît maintenant dans la collection et l’encyclopédie.` });
+      toast({ title: "Cadeau créé", description: `${response.data.card.name} attend le joueur dans son coffre cadeaux.` });
     } catch (error) { toast({ title: "Cadeau impossible", description: error.message, variant: "destructive" }); }
     finally { setSaving(false); }
   };
@@ -171,7 +171,7 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
       const response = await appClient.functions.invoke("adminGrantPlayerFrame", { user_id: selectedUser.id, frame_id: giftFrameId });
       await refetchPlayerControl();
       await queryClient.invalidateQueries({ queryKey: ["myFrames"] });
-      toast({ title: "Cadre offert", description: `${response.data.frame.name} est maintenant possédé par le joueur.` });
+      toast({ title: "Cadeau créé", description: `${response.data.frame.name} attend le joueur dans son coffre cadeaux.` });
     } catch (error) { toast({ title: "Cadeau impossible", description: error.message, variant: "destructive" }); }
     finally { setSaving(false); }
   };
@@ -185,6 +185,24 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
       await Promise.all([queryClient.invalidateQueries({ queryKey: ["myFrames"] }), queryClient.invalidateQueries({ queryKey: ["cards"] })]);
       toast({ title: "Cadre retiré" });
     } catch (error) { toast({ title: "Retrait impossible", description: error.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const repairInventory = async () => {
+    if (!selectedUser || saving) return;
+    setSaving(true);
+    try {
+      const response = await appClient.functions.invoke("adminRepairPlayerInventory", { user_id: selectedUser.id });
+      await Promise.all([
+        refetchPlayerControl(),
+        onUserUpdate?.(),
+        queryClient.invalidateQueries({ queryKey: ["cards"] }),
+        queryClient.invalidateQueries({ queryKey: ["myFrames"] }),
+        queryClient.invalidateQueries({ queryKey: ["giftInbox"] }),
+      ]);
+      const data = response.data || {};
+      toast({ title: "Inventaire réparé", description: `${numberValue(data.repairedCards)} cartes · ${numberValue(data.repairedFrames)} cadres · ${numberValue(data.repairedGifts)} cadeaux resynchronisés.` });
+    } catch (error) { toast({ title: "Réparation impossible", description: error.message, variant: "destructive" }); }
     finally { setSaving(false); }
   };
 
@@ -222,6 +240,10 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
       {!filteredUsers.length && <div className="text-center py-12 text-muted-foreground"><Users className="w-12 h-12 mx-auto mb-3" />Aucun utilisateur trouvé</div>}
 
       <Dialog open={!!selectedId} onOpenChange={open => !open && setSelectedId(null)}><DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto"><DialogHeader><DialogTitle>Centre de contrôle joueur</DialogTitle><DialogDescription>{selectedUser?.email} · compte, progression, cartes et cadres réunis au même endroit</DialogDescription></DialogHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <div><p className="text-sm font-bold text-emerald-300">Maintenance inventaire</p><p className="text-xs text-muted-foreground">Resynchronise cartes, cadres, cadeaux en attente et profil joueur.</p></div>
+          <Button variant="outline" disabled={saving || !selectedUser} onClick={repairInventory} className="border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10"><Wrench className="mr-1.5 h-4 w-4" />Réparer inventaire</Button>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="text-xs font-semibold">Pseudo<Input className="mt-1.5" value={form.full_name || ""} onChange={event => setForm(current => ({ ...current, full_name: event.target.value }))} /></label>
           <label className="text-xs font-semibold">Rôle<select className="mt-1.5 w-full h-10 rounded-md border border-input bg-background px-3" value={form.role || "user"} onChange={event => setForm(current => ({ ...current, role: event.target.value }))}>{ROLES.map(role => <option key={role.id} value={role.id}>{role.label}</option>)}</select></label>
@@ -241,6 +263,10 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
             <Button disabled={!giftCardId || saving} onClick={grantCard}><Gift className="mr-1.5 h-4 w-4" />Offrir</Button>
           </div>
           <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-border/60 bg-background/50 p-2">{playerControlLoading ? <p className="p-3 text-xs text-muted-foreground">Chargement de l’inventaire…</p> : playerControl?.cards?.length ? playerControl.cards.map(card => <div key={card.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-secondary/40"><div className="h-9 w-7 shrink-0 overflow-hidden rounded bg-secondary">{card.image_url && <img src={card.image_url} alt="" className="h-full w-full object-cover" />}</div><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{card.name} <span className="text-muted-foreground">×{card.duplicates || 1}</span></p><p className="truncate text-[10px] text-muted-foreground">{card.anime} · {card.rarity} · niveau {card.level || 1}</p></div><Button size="sm" variant="ghost" disabled={saving} onClick={() => revokeCard(card)} className="h-8 text-red-400"><Trash2 className="h-3.5 w-3.5" /></Button></div>) : <p className="p-3 text-xs text-muted-foreground">Aucune carte possédée.</p>}</div>
+        </section>
+        <section className="space-y-3 rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 font-bold"><Gift className="h-4 w-4 text-yellow-400" />Cadeaux en attente</h3><p className="text-xs text-muted-foreground">Le joueur doit les réclamer depuis son coffre cadeaux.</p></div><span className="text-xs text-muted-foreground">{playerControl?.stats?.gifts || 0} en attente</span></div>
+          <div className="grid max-h-40 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">{playerControl?.gifts?.length ? playerControl.gifts.map(gift => <div key={gift.id} className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/50 p-2"><div className="h-12 w-8 shrink-0 overflow-hidden rounded bg-secondary">{gift.card?.image_url && <img src={gift.card.image_url} alt="" className="h-full w-full object-cover" />}{!gift.card?.image_url && gift.frame?.image_url && <img src={gift.frame.image_url} alt="" className="h-full w-full object-fill" />}</div><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{gift.title || gift.card?.name || gift.frame?.name || "Cadeau"}</p><p className="text-[10px] text-muted-foreground">{gift.kind === "card" ? `${gift.card?.rarity || "carte"} ×${gift.quantity || 1}` : "cadre"} · {new Date(gift.created_date).toLocaleDateString("fr-FR")}</p></div></div>) : <p className="p-3 text-xs text-muted-foreground">Aucun cadeau en attente.</p>}</div>
         </section>
         <section className="space-y-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 font-bold"><Frame className="h-4 w-4 text-cyan-400" />Offrir un cadre</h3><p className="text-xs text-muted-foreground">Le cadre apparaît immédiatement dans la collection du joueur.</p></div><span className="text-xs text-muted-foreground">{playerControl?.stats?.frames || 0} possédé(s)</span></div>

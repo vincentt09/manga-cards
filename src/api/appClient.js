@@ -66,12 +66,20 @@ const request = async (path, options = {}) => {
 };
 
 const entity = (name) => ({
-  list: (sort, limit, skip, fields) => request(`/entities/${name}?${new URLSearchParams({
-    ...(sort ? { sort } : {}),
-    ...(limit ? { limit } : {}),
-    ...(skip ? { skip } : {}),
-    ...(fields ? { fields: Array.isArray(fields) ? fields.join(",") : fields } : {}),
-  })}`),
+  list: (sort, limit, skip, fields) => {
+    if (name === "Card") {
+      return request("/functions/getMyCards", {
+        method: "POST",
+        body: JSON.stringify({ sort, limit, skip, fields }),
+      }).then((response) => response.data || []);
+    }
+    return request(`/entities/${name}?${new URLSearchParams({
+      ...(sort ? { sort } : {}),
+      ...(limit ? { limit } : {}),
+      ...(skip ? { skip } : {}),
+      ...(fields ? { fields: Array.isArray(fields) ? fields.join(",") : fields } : {}),
+    })}`);
+  },
   filter: (query = {}, sort, limit, skip, fields) => request(`/entities/${name}/filter`, {
     method: "POST",
     body: JSON.stringify({ query, sort, limit, skip, fields }),

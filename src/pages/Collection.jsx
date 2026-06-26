@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { appClient } from "@/api/appClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Search, Star, Grid, List, Layers, Filter, SlidersHorizontal, TrendingUp, RotateCcw, Frame as FrameIcon, Sparkles } from "lucide-react";
+import { Search, Star, Grid, List, Layers, Filter, SlidersHorizontal, TrendingUp, RotateCcw, Frame as FrameIcon, Sparkles, Gift } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -47,12 +47,18 @@ export default function Collection() {
     queryKey: ["myFrames"],
     queryFn: () => appClient.entities.PlayerFrame.list(),
   });
+  const { data: giftInboxResponse } = useQuery({
+    queryKey: ["giftInbox"],
+    queryFn: () => appClient.functions.invoke("getMyGiftInbox"),
+    refetchInterval: 30000,
+  });
 
   const { data: profiles = [] } = useQuery({
     queryKey: ["profile"],
     queryFn: () => appClient.entities.PlayerProfile.list(),
   });
   const profile = profiles[0];
+  const giftInbox = giftInboxResponse?.data?.gifts || [];
   const ownedFrames = useMemo(() => playerFrames.filter(owned => owned.is_unlocked).map(owned => ({ ...owned, definition: frames.find(frame => frame.id === owned.frame_id) })).filter(owned => owned.definition), [playerFrames, frames]);
 
   useEffect(() => localStorage.setItem("collection_sort", sortBy), [sortBy]);
@@ -69,6 +75,17 @@ export default function Collection() {
   const updateCardMutation = useMutation({
     mutationFn: ({ id, data }) => appClient.entities.Card.update(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cards"] }),
+  });
+  const claimGiftMutation = useMutation({
+    mutationFn: (giftId) => appClient.functions.invoke("claimPlayerGift", { gift_id: giftId }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["giftInbox"] }),
+        queryClient.invalidateQueries({ queryKey: ["cards"] }),
+        queryClient.invalidateQueries({ queryKey: ["myFrames"] }),
+        queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+      ]);
+    },
   });
 
   const animes = useMemo(() => {
@@ -190,6 +207,40 @@ export default function Collection() {
             ))}
           </div>
         </motion.div>
+
+        {giftInbox.length > 0 && (
+          <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mb-6 overflow-hidden rounded-2xl border border-yellow-500/25 bg-gradient-to-br from-yellow-500/10 via-card to-card p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="flex items-center gap-2 font-display font-bold"><Gift className="h-5 w-5 text-yellow-400" />Coffre cadeaux</h2>
+                <p className="mt-1 text-xs text-muted-foreground">Les cartes et cadres offerts arrivent ici avant de rejoindre ton inventaire.</p>
+              </div>
+              <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1 text-xs font-bold text-yellow-300">{giftInbox.length} cadeau{giftInbox.length > 1 ? "x" : ""}</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {giftInbox.map((gift) => {
+                const item = gift.kind === "card" ? gift.card : gift.frame;
+                const imageUrl = item?.image_url;
+                const label = gift.kind === "card" ? `${item?.anime || "Carte"} · ${item?.rarity || ""}` : `${item?.rarity || "Cadre"} · Cadre`;
+                return (
+                  <article key={gift.id} className="flex gap-3 rounded-xl border border-border/60 bg-background/60 p-3">
+                    <div className="relative aspect-[2/3] w-14 shrink-0 overflow-hidden rounded-lg bg-secondary">
+                      {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-cover" /> : <Gift className="absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 text-yellow-300" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-1 text-sm font-bold">{gift.title || item?.name || "Cadeau"}</p>
+                      <p className="mt-1 line-clamp-1 text-[11px] text-muted-foreground">{label}{gift.quantity > 1 ? ` · ×${gift.quantity}` : ""}</p>
+                      {gift.message && <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground/80">{gift.message}</p>}
+                      <Button size="sm" className="mt-2 h-8 bg-gradient-to-r from-yellow-500 to-amber-500 text-xs text-black hover:from-yellow-400 hover:to-amber-400" disabled={claimGiftMutation.isPending} onClick={() => claimGiftMutation.mutate(gift.id)}>
+                        Réclamer
+                      </Button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </motion.section>
+        )}
 
         <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mb-6 rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 via-card to-card p-4">
           <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="flex items-center gap-2 font-display font-bold"><FrameIcon className="h-5 w-5 text-cyan-400" />Mes cadres</h2><p className="mt-1 text-xs text-muted-foreground">Les cadres débloqués font partie de ta collection et peuvent être appliqués à tes cartes.</p></div><span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-300">{ownedFrames.length}</span></div>
