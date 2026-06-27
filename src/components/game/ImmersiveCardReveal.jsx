@@ -1,51 +1,67 @@
-import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ArrowUp, Crown, Package, Shield, Sparkles, Star, Wind, Zap } from "lucide-react";
 import { RARITY_CONFIG } from "@/lib/gameData";
-import { Star, Zap, Shield, Wind, Sparkles, ArrowUp, Crown, Package } from "lucide-react";
 
-const RARITY_PARTICLE_COLORS = {
-  "secrète": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff", "#fde68a"],
-  legendaire: ["#fbbf24", "#f59e0b", "#fde68a", "#fffbeb"],
-  manga_god: ["#22d3ee", "#67e8f9", "#a5f3fc", "#0891b2"],
-  secret: ["#f43f5e", "#fb7185", "#fda4af", "#ffffff", "#fde68a"],
-  legendary: ["#fbbf24", "#f59e0b", "#fde68a", "#fffbeb"],
-  epic: ["#a855f7", "#c084fc", "#e9d5ff", "#7c3aed"],
-  ultra_rare: ["#22d3ee", "#67e8f9", "#a5f3fc", "#0891b2"],
-  rare: ["#3b82f6", "#60a5fa", "#bfdbfe"],
-  common: ["#94a3b8", "#cbd5e1"],
+const highRarities = new Set(["legendaire", "secrète", "secrÃ¨te", "manga_god"]);
+
+const particleColors = {
+  normale: ["#94a3b8", "#cbd5e1"],
+  legendaire: ["#fbbf24", "#f59e0b", "#fde68a", "#fff7ed"],
+  "secrète": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff"],
+  "secrète": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff"],
+  "secrÃ¨te": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff"],
+  manga_god: ["#22d3ee", "#67e8f9", "#a5f3fc", "#ffffff"],
 };
 
-function Particles({ rarity, isActive }) {
-  const colors = RARITY_PARTICLE_COLORS[rarity] || RARITY_PARTICLE_COLORS.common;
-  const isHighRarity = ["secret", "legendary", "epic"].includes(rarity);
-  const count = rarity === "secret" ? 32 : rarity === "legendary" ? 24 : isHighRarity ? 18 : 12;
+function getDisplayImage(card, imageOverrides = []) {
+  const suffixes = {
+    normale: ["_n", "_b"],
+    legendaire: ["_l"],
+    "secrète": ["_s"],
+    "secrète": ["_s"],
+    "secrÃ¨te": ["_s"],
+    manga_god: ["_mg"],
+  }[card.rarity] || ["_n"];
 
-  if (!isActive) return null;
+  const override = imageOverrides.find(item =>
+    item.card_name?.toLowerCase() === card.name?.toLowerCase()
+    && item.card_id
+    && suffixes.some(suffix => item.card_id.endsWith(suffix))
+  );
+  return override?.image_url || card.image_url;
+}
+
+function FloatingParticles({ rarity, active = true }) {
+  const reduceMotion = useReducedMotion();
+  const colors = particleColors[rarity] || particleColors.normale;
+  const count = rarity === "manga_god" ? 42 : highRarities.has(rarity) ? 28 : 14;
+  const particles = useMemo(() => [...Array(count)].map((_, index) => ({
+    x: `${50 + (Math.random() - 0.5) * 260}%`,
+    y: `${50 + (Math.random() - 0.5) * 260}%`,
+    rotate: Math.random() * 360,
+    large: index % 5 === 0,
+  })), [count]);
+  if (!active || reduceMotion) return null;
 
   return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl">
-      {[...Array(count)].map((_, i) => {
-        const color = colors[i % colors.length];
-        const isLarge = isHighRarity && i % 4 === 0;
+    <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
+      {particles.map((particle, index) => {
+        const color = colors[index % colors.length];
         return (
-          <motion.div
-            key={i}
-            initial={{ opacity: 1, x: "50%", y: "50%", scale: 0 }}
-            animate={{
-              opacity: [1, 1, 0],
-              x: `${50 + (Math.random() - 0.5) * 280}%`,
-              y: `${50 + (Math.random() - 0.5) * 280}%`,
-              scale: [0, isLarge ? 2 : 1.2, 0],
-              rotate: Math.random() * 360,
-            }}
-            transition={{ duration: isHighRarity ? 1.4 : 1, delay: i * 0.03 }}
+          <motion.span
+            key={index}
             className="absolute rounded-full"
-            style={{
-              width: isLarge ? 8 : 5,
-              height: isLarge ? 8 : 5,
-              backgroundColor: color,
-              boxShadow: isHighRarity ? `0 0 6px ${color}` : "none",
+            style={{ width: particle.large ? 8 : 5, height: particle.large ? 8 : 5, backgroundColor: color, boxShadow: `0 0 10px ${color}` }}
+            initial={{ x: "50%", y: "50%", opacity: 0, scale: 0 }}
+            animate={{
+              x: particle.x,
+              y: particle.y,
+              opacity: [0, 1, 0],
+              scale: [0, 1.35, 0],
+              rotate: particle.rotate,
             }}
+            transition={{ duration: 1.4, delay: index * 0.025 }}
           />
         );
       })}
@@ -54,234 +70,201 @@ function Particles({ rarity, isActive }) {
 }
 
 function BoosterOpeningAnimation({ booster, onOpenComplete }) {
-  const [stage, setStage] = useState("shaking");
+  const [stage, setStage] = useState("sealed");
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    const t1 = setTimeout(() => setStage("glowing"), 800);
-    const t2 = setTimeout(() => setStage("exploding"), 1400);
-    const t3 = setTimeout(() => onOpenComplete(), 1800);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [onOpenComplete]);
+    if (reduceMotion) {
+      const timer = window.setTimeout(onOpenComplete, 350);
+      return () => window.clearTimeout(timer);
+    }
+    const timers = [
+      window.setTimeout(() => setStage("shake"), 350),
+      window.setTimeout(() => setStage("charge"), 1050),
+      window.setTimeout(() => setStage("crack"), 1850),
+      window.setTimeout(() => setStage("explode"), 2450),
+      window.setTimeout(() => onOpenComplete(), 3050),
+    ];
+    return () => timers.forEach(window.clearTimeout);
+  }, [onOpenComplete, reduceMotion]);
 
   return (
-    <motion.div
-      animate={
-        stage === "shaking" ? { rotate: [-2, 2, -2, 2, 0], scale: 1, transition: { duration: 0.8 } } :
-        stage === "glowing" ? { scale: [1, 1.15, 1.05], filter: ["brightness(1)", "brightness(1.5)", "brightness(1.3)"], transition: { duration: 0.6 } } :
-        { scale: [1.05, 2, 3], opacity: [1, 0.8, 0], transition: { duration: 0.4 } }
-      }
-      className="relative w-64 h-80 flex items-center justify-center"
-    >
-      <div className={`relative w-64 h-80 rounded-2xl overflow-hidden border-4 border-primary/50 bg-gradient-to-br ${booster.color} shadow-2xl`}>
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full animate-[shimmer_1s_infinite]" />
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-          <Package className="w-20 h-20 text-white/80" />
-          <span className="font-display text-2xl font-bold text-white tracking-wider">{booster.name}</span>
-          <div className="flex gap-2">
-            {[...Array(5)].map((_, i) => (
-              <motion.div key={i} animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }} transition={{ duration: 0.5, delay: i * 0.1, repeat: Infinity }} className="w-2 h-2 rounded-full bg-white" />
-            ))}
+    <div className="relative flex min-h-[520px] w-full flex-col items-center justify-center overflow-hidden text-center">
+      <motion.p initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-3 text-[11px] font-black uppercase tracking-[0.34em] text-primary">
+        Ouverture du booster
+      </motion.p>
+      <motion.h2 initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-8 max-w-lg font-display text-3xl font-black text-white sm:text-5xl">
+        {stage === "explode" ? "Explosion de rarete !" : booster?.name || "Booster"}
+      </motion.h2>
+
+      {[...Array(3)].map((_, index) => (
+        <motion.div
+          key={index}
+          className="absolute rounded-full border border-primary/25"
+          initial={{ width: 180, height: 180, opacity: 0, scale: 0.2 }}
+          animate={{ opacity: [0, 0.9, 0], scale: [0.2, 1.8 + index * 0.35, 2.4 + index * 0.5] }}
+          transition={{ duration: 1.7, repeat: Infinity, delay: index * 0.42 }}
+        />
+      ))}
+
+      <motion.div
+        animate={
+          stage === "sealed" ? { y: [0, -10, 0], rotate: [0, -1, 1, 0] } :
+          stage === "shake" ? { rotate: [-5, 5, -4, 4, -2, 2, 0], x: [-8, 8, -6, 6, 0], scale: 1.02 } :
+          stage === "charge" ? { scale: [1, 1.12, 1.06], filter: ["brightness(1)", "brightness(2.2)", "brightness(1.6)"] } :
+          stage === "crack" ? { rotate: [-2, 2, -3, 3, 0], scale: [1.06, 1.18, 1.08] } :
+          { scale: [1.1, 1.8, 3.5], opacity: [1, 0.8, 0], rotate: [0, 12, -16] }
+        }
+        transition={{ duration: stage === "sealed" ? 1.5 : 0.75, repeat: stage === "sealed" ? Infinity : 0 }}
+        className="relative grid aspect-[3/4] w-60 place-items-center overflow-hidden rounded-[2rem] border-4 border-white/20 shadow-2xl shadow-primary/30 sm:w-72"
+      >
+        <div className={`absolute inset-0 bg-gradient-to-br ${booster?.color || "from-primary to-accent"}`} />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,255,255,0.34),transparent_28%),linear-gradient(to_top,rgba(0,0,0,0.75),transparent_55%)]" />
+        <motion.div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent" animate={{ x: ["-140%", "140%"] }} transition={{ duration: 1.1, repeat: Infinity, repeatDelay: 0.25 }} />
+        {stage === "crack" && (
+          <div className="absolute inset-0">
+            <motion.div className="absolute left-1/2 top-0 h-full w-1 -translate-x-1/2 bg-white/80 shadow-[0_0_28px_white]" initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} />
+            <motion.div className="absolute left-[35%] top-[28%] h-24 w-1 rotate-[-38deg] bg-white/70 shadow-[0_0_20px_white]" initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} />
+            <motion.div className="absolute right-[34%] top-[44%] h-28 w-1 rotate-[42deg] bg-white/70 shadow-[0_0_20px_white]" initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} />
           </div>
+        )}
+        <div className="relative z-10 flex flex-col items-center gap-4 px-6">
+          <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: 5, repeat: Infinity, ease: "linear" }} className="grid h-24 w-24 place-items-center rounded-full border border-white/35 bg-black/25 backdrop-blur">
+            <Package className="h-14 w-14 text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.85)]" />
+          </motion.div>
+          <span className="font-display text-2xl font-black tracking-wide text-white drop-shadow-lg">{booster?.icon || "📦"}</span>
+          <span className="text-xs font-bold uppercase tracking-[0.25em] text-white/70">{stage === "charge" ? "Concentration..." : stage === "crack" ? "Le sceau se brise" : "Scellé"}</span>
         </div>
-        {stage === "glowing" && <div className="absolute inset-0 bg-white/30 animate-pulse" />}
-      </div>
-      {stage === "exploding" && <motion.div initial={{ scale: 0, opacity: 1 }} animate={{ scale: 3, opacity: 0 }} transition={{ duration: 0.4 }} className="absolute inset-0 bg-white rounded-full" />}
-    </motion.div>
+      </motion.div>
+
+      {stage === "explode" && (
+        <>
+          <motion.div initial={{ scale: 0, opacity: 1 }} animate={{ scale: 8, opacity: 0 }} transition={{ duration: 0.7 }} className="absolute h-28 w-28 rounded-full bg-white" />
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 0.45 }} className="fixed inset-0 bg-white" />
+        </>
+      )}
+    </div>
   );
 }
 
 function SingleCardReveal({ card, index, onRevealed, forceReveal = false, imageOverrides = [] }) {
   const [revealed, setRevealed] = useState(false);
-  const [showParticles, setShowParticles] = useState(false);
-  const rarity = RARITY_CONFIG[card.rarity] || RARITY_CONFIG.common;
-  const isHighRarity = ["legendaire", "secrète", "manga_god"].includes(card.rarity);
-  const isEpicPlus = isHighRarity;
-  
-  // Get override image (match by name + rarity suffix)
-  const raritySuffixes = {
-    "normale": ["_n", "_b"],
-    "legendaire": ["_l"], 
-    "secrète": ["_s"],
-    "manga_god": ["_mg"]
-  }[card.rarity] || ["_n"];
-  
-  const override = imageOverrides.find(o => 
-    o.card_name && 
-    o.card_name.toLowerCase() === card.name.toLowerCase() &&
-    o.card_id &&
-    raritySuffixes.some(suffix => o.card_id.endsWith(suffix))
-  );
-  const displayImageUrl = override?.image_url || card.image_url;
+  const [particles, setParticles] = useState(false);
+  const rarity = RARITY_CONFIG[card.rarity] || RARITY_CONFIG.normale;
+  const imageUrl = getDisplayImage(card, imageOverrides);
+  const special = highRarities.has(card.rarity);
 
-  const handleClick = () => {
+  const reveal = () => {
     if (revealed) return;
     setRevealed(true);
-    setShowParticles(true);
-    setTimeout(() => setShowParticles(false), 1600);
+    setParticles(true);
+    window.setTimeout(() => setParticles(false), 1600);
     onRevealed?.(card, index);
   };
 
   useEffect(() => {
-    if (!forceReveal || revealed) return;
-    setRevealed(true);
-    setShowParticles(true);
-    const timer = setTimeout(() => setShowParticles(false), 1600);
-    onRevealed?.(card, index);
-    return () => clearTimeout(timer);
-  }, [forceReveal, revealed, card, index, onRevealed]);
+    if (forceReveal) reveal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceReveal]);
 
   return (
-    <>
-      <motion.div
-        initial={{ opacity: 0, y: 50, rotateY: -20, scale: 0.8 }}
-        animate={{ opacity: 1, y: 0, rotateY: 0, scale: 1 }}
-        transition={{ delay: index * 0.15, duration: 0.55, type: "spring", bounce: 0.4 }}
-        onClick={handleClick}
-        className="cursor-pointer relative"
-        style={{ perspective: "800px" }}
-      >
-        <AnimatePresence mode="wait">
-          {!revealed ? (
-            <motion.div
-              key="back"
-              exit={{ rotateY: 90, opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.3 }}
-              className="w-40 h-56 sm:w-44 sm:h-60 rounded-xl overflow-hidden border-2 border-primary/30 bg-gradient-to-br from-primary/20 via-card to-accent/10 flex flex-col items-center justify-center gap-3 relative"
-            >
-              <div className="absolute inset-0 shimmer rounded-xl" />
-              <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: 3, repeat: Infinity, ease: "linear" }} className="w-16 h-16 rounded-full border-2 border-primary/30 flex items-center justify-center bg-primary/10">
-                <Sparkles className="w-8 h-8 text-primary animate-pulse" />
-              </motion.div>
-              <p className="text-[10px] text-muted-foreground font-medium text-center px-3 leading-tight">Toucher pour révéler</p>
+    <motion.button type="button" aria-label={revealed ? `${card.name}, carte révélée` : `Révéler la carte ${index + 1}`} initial={{ opacity: 0, y: 40, scale: 0.78 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: index * 0.12, type: "spring", bounce: 0.35 }} onClick={reveal} className="relative cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-black" style={{ perspective: "1000px" }}>
+      <AnimatePresence mode="wait">
+        {!revealed ? (
+          <motion.div key="back" exit={{ rotateY: 90, opacity: 0, scale: 0.9 }} className="relative grid h-60 w-40 place-items-center overflow-hidden rounded-2xl border-2 border-primary/35 bg-gradient-to-br from-primary/25 via-card to-accent/10 sm:h-72 sm:w-48">
+            <motion.div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent" animate={{ x: ["-130%", "130%"] }} transition={{ duration: 1.4, repeat: Infinity }} />
+            <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: 4, repeat: Infinity, ease: "linear" }} className="grid h-20 w-20 place-items-center rounded-full border border-primary/40 bg-primary/15">
+              <Sparkles className="h-10 w-10 text-primary" />
             </motion.div>
-          ) : (
-            <motion.div
-              key="front"
-              initial={{ rotateY: -90, opacity: 0, scale: 1.1 }}
-              animate={{ rotateY: 0, opacity: 1, scale: 1 }}
-              transition={{ duration: 0.35, type: "spring" }}
-              className={`w-40 h-56 sm:w-44 sm:h-60 rounded-xl overflow-hidden border-2 ${rarity.borderColor} relative ${isHighRarity ? "legendary-glow" : ""}`}
-            >
-              <img src={displayImageUrl} alt={card.name} className="w-full h-full object-cover object-top" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
-              {isEpicPlus && <div className="absolute inset-0 shimmer opacity-30 pointer-events-none" />}
-              <Particles rarity={card.rarity} isActive={showParticles} />
-
-              <div className={`absolute top-3 right-3 ${rarity.bgColor} ${rarity.color} border ${rarity.borderColor} rounded-full px-3 py-1 text-[10px] font-bold flex items-center gap-1 shadow-lg`}>
-                {rarity.label}
+            <p className="absolute bottom-5 text-center text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Toucher</p>
+          </motion.div>
+        ) : (
+          <motion.div key="front" initial={{ rotateY: -90, opacity: 0 }} animate={{ rotateY: 0, opacity: 1 }} className={`relative h-60 w-40 overflow-hidden rounded-2xl border-2 shadow-2xl sm:h-72 sm:w-48 ${rarity.borderColor} ${special ? "shadow-primary/40" : "shadow-black/40"}`}>
+            {imageUrl ? <img src={imageUrl} alt={card.name} className="h-full w-full object-cover object-top" /> : <div className="grid h-full w-full place-items-center bg-slate-950"><Sparkles className="h-12 w-12 text-primary" /></div>}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/15 to-white/10" />
+            {special && <motion.div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent" initial={{ x: "-130%" }} animate={{ x: "130%" }} transition={{ duration: 1.1, repeat: 2 }} />}
+            <FloatingParticles rarity={card.rarity} active={particles} />
+            {special && <Crown className="absolute left-3 top-3 h-5 w-5 text-yellow-200 drop-shadow-[0_0_8px_rgba(253,224,71,0.9)]" />}
+            <div className={`absolute right-3 top-3 rounded-full border px-2 py-1 text-[10px] font-black ${rarity.bgColor} ${rarity.color} ${rarity.borderColor}`}>{rarity.label}</div>
+            {card.isDuplicate && (
+              <div className="absolute left-3 top-10 rounded-full border border-green-400/30 bg-green-500/85 px-2 py-1 text-[10px] font-black text-white">
+                <ArrowUp className="mr-1 inline h-3 w-3" />{card.levelsGained > 0 ? "NIVEAU +" : "PILE"}
               </div>
-
-              {isHighRarity && (
-                <motion.div className="absolute top-3 left-3" animate={{ scale: [1, 1.3, 1], rotate: [-5, 5, -5] }} transition={{ duration: 1.5, repeat: Infinity }}>
-                  <Crown className={`w-5 h-5 ${card.rarity === "secrète" ? "text-rose-300" : card.rarity === "manga_god" ? "text-cyan-300" : "text-yellow-300"}`} style={{ filter: card.rarity === "secrète" ? "drop-shadow(0 0 6px #f43f5e)" : card.rarity === "manga_god" ? "drop-shadow(0 0 6px #22d3ee)" : "drop-shadow(0 0 6px #fbbf24)" }} />
-                </motion.div>
-              )}
-
-              {card.isDuplicate && (
-                <div className="absolute top-10 left-3">
-                  <div className="bg-green-500/90 rounded-full px-2 py-1 text-[10px] font-bold text-white flex items-center gap-1 shadow-lg">
-                    <ArrowUp className="w-3 h-3" />{card.levelsGained > 0 ? "NIVEAU +" : "EMPILÉE"}
-                  </div>
+            )}
+            <div className="absolute inset-x-0 bottom-0 p-3">
+              <p className="truncate font-heading text-sm font-bold text-white">{card.name}</p>
+              <p className="mb-2 truncate text-[10px] text-white/60">{card.anime}</p>
+              {card.isDuplicate ? (
+                <div className="rounded-lg border border-green-500/30 bg-green-500/20 px-2 py-1 text-[10px] font-bold text-green-300">
+                  {card.levelsGained > 0 ? `Niveau ${card.level}` : `Empilee x${card.stackCount || 2}`}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-white">
+                  <Zap className="h-3 w-3 text-red-400" /><span className="text-[10px] font-bold">{card.attack}</span>
+                  <Shield className="h-3 w-3 text-blue-400" /><span className="text-[10px] font-bold">{card.defense}</span>
+                  <Wind className="h-3 w-3 text-green-400" /><span className="text-[10px] font-bold">{card.speed}</span>
+                  <span className="ml-auto flex items-center gap-1 rounded-full bg-yellow-500/20 px-2 py-0.5 text-[10px] font-black"><Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />{card.power}</span>
                 </div>
               )}
-
-              <div className="absolute bottom-0 inset-x-0 p-3 bg-gradient-to-t from-black/95 to-transparent">
-                <p className="font-heading font-bold text-white text-sm truncate mb-1">{card.name}</p>
-                <p className="text-[10px] text-white/60 mb-2">{card.anime}</p>
-                {card.isDuplicate ? (
-                  <div className="bg-green-500/25 rounded-lg px-2 py-1.5 text-[10px] text-green-300 font-bold border border-green-500/30">
-                    {card.levelsGained > 0
-                      ? `Amélioration automatique · Niveau ${card.level}`
-                      : `Duplicata empilé · ×${card.stackCount || 2} exemplaires`}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
-                      <Zap className="w-3.5 h-3.5 text-red-400" />
-                      <span className="text-[10px] text-white font-bold">{card.attack}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Shield className="w-3.5 h-3.5 text-blue-400" />
-                      <span className="text-[10px] text-white font-bold">{card.defense}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Wind className="w-3.5 h-3.5 text-green-400" />
-                      <span className="text-[10px] text-white font-bold">{card.speed}</span>
-                    </div>
-                    <div className="ml-auto flex items-center gap-1 bg-yellow-500/20 rounded-full px-2 py-0.5 border border-yellow-500/30">
-                      <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-                      <span className="text-[11px] text-white font-display font-bold">{card.power}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-    </>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.button>
   );
 }
 
 export default function ImmersiveCardReveal({ cards, onComplete, booster, imageOverrides = [], onOpenAnother, onCardRevealed }) {
+  const reduceMotion = useReducedMotion();
   const [isOpening, setIsOpening] = useState(true);
   const [revealedCount, setRevealedCount] = useState(0);
   const [revealAll, setRevealAll] = useState(false);
   const allRevealed = revealedCount >= cards.length;
-
-  const handleOpenComplete = () => setIsOpening(false);
-
-  if (isOpening) {
-    return <BoosterOpeningAnimation booster={booster} onOpenComplete={handleOpenComplete} />;
-  }
+  const particles = useMemo(() => reduceMotion ? [] : [...Array(34)].map(() => ({ x: Math.random() * 100, d: Math.random() * 2, t: 4 + Math.random() * 2 })), [reduceMotion]);
 
   return (
-    <div className="flex flex-col items-center gap-6">
-      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-        <h2 className="font-display text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent mb-2">Cartes Obtenues !</h2>
-        <p className="text-muted-foreground text-sm">Touche chaque carte pour la révéler</p>
-      </motion.div>
-
-      <div className="flex flex-wrap justify-center gap-4">
-        {cards.map((card, i) => (
-          <SingleCardReveal
-            key={i}
-            card={card}
-            index={i}
-            forceReveal={revealAll}
-            onRevealed={(revealedCard, revealedIndex) => {
-              setRevealedCount(n => n + 1);
-              onCardRevealed?.(revealedCard, revealedIndex);
-            }}
-            imageOverrides={imageOverrides}
-          />
-        ))}
-      </div>
-
-      {!allRevealed && (
-        <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: cards.length * 0.15 + 0.4 }} onClick={() => setRevealAll(true)} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors">
-          Tout révéler
-        </motion.button>
-      )}
-
-      <AnimatePresence>
-        {allRevealed && (
-          <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-3">
-            <motion.button onClick={onComplete} className="px-12 py-3.5 bg-gradient-to-r from-primary to-accent rounded-full font-heading font-bold text-sm text-white hover:opacity-90 transition-opacity shadow-lg hover:shadow-primary/50">
-              Continuer →
-            </motion.button>
-            {onOpenAnother && (
-              <motion.button 
-                onClick={onOpenAnother} 
-                className="px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full font-heading font-bold text-sm text-white hover:opacity-90 transition-opacity shadow-lg hover:shadow-green-500/50 flex items-center gap-2"
-              >
-                <Package className="w-4 h-4" />
-                Ouvrir un autre
-              </motion.button>
-            )}
-          </motion.div>
+    <motion.div role="dialog" aria-modal="true" aria-label="Ouverture du booster" className="fixed inset-0 z-[110] overflow-y-auto bg-black/94 px-3 py-[max(1rem,env(safe-area-inset-top))] backdrop-blur-xl sm:px-6 sm:py-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_center,rgba(139,92,246,0.23),transparent_36%),radial-gradient(circle_at_18%_20%,rgba(34,211,238,0.15),transparent_30%),radial-gradient(circle_at_80%_80%,rgba(251,191,36,0.13),transparent_28%)]" />
+      {particles.map((particle, index) => (
+        <motion.span key={index} className="pointer-events-none fixed h-1 w-1 rounded-full bg-white/80" initial={{ x: `${particle.x}vw`, y: "105vh", opacity: 0, scale: 0 }} animate={{ y: ["105vh", "-10vh"], opacity: [0, 0.75, 0], scale: [0, 1.2, 0] }} transition={{ duration: particle.t, delay: particle.d, repeat: Infinity }} />
+      ))}
+      <div className="relative z-10 mx-auto flex min-h-full max-w-6xl flex-col items-center justify-center">
+        {isOpening ? (
+          <BoosterOpeningAnimation booster={booster} onOpenComplete={() => setIsOpening(false)} />
+        ) : (
+          <div className="flex w-full flex-col items-center gap-6">
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.35em] text-primary">Résultat du tirage</p>
+              <h2 className="mb-2 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text font-display text-3xl font-black text-transparent sm:text-5xl">Cartes obtenues !</h2>
+              <p className="text-sm text-white/65">Touche chaque carte pour la révéler</p>
+            </motion.div>
+            <div className="flex flex-wrap justify-center gap-4 sm:gap-5">
+              {cards.map((card, index) => (
+                <SingleCardReveal
+                  key={`${card.id || card.name}-${index}`}
+                  card={card}
+                  index={index}
+                  forceReveal={revealAll}
+                  imageOverrides={imageOverrides}
+                  onRevealed={(revealedCard, revealedIndex) => {
+                    setRevealedCount(count => Math.min(cards.length, count + 1));
+                    onCardRevealed?.(revealedCard, revealedIndex);
+                  }}
+                />
+              ))}
+            </div>
+            {!allRevealed && <button onClick={() => setRevealAll(true)} className="text-xs text-white/55 underline underline-offset-2 transition-colors hover:text-white">Tout révéler</button>}
+            <AnimatePresence>
+              {allRevealed && (
+                <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-3">
+                  <button onClick={onComplete} className="rounded-full bg-gradient-to-r from-primary to-accent px-12 py-3.5 font-heading text-sm font-bold text-white shadow-lg transition-opacity hover:opacity-90 hover:shadow-primary/50">Continuer →</button>
+                  {onOpenAnother && <button onClick={onOpenAnother} className="flex items-center gap-2 rounded-full bg-gradient-to-r from-green-500 to-emerald-600 px-8 py-3 font-heading text-sm font-bold text-white shadow-lg transition-opacity hover:opacity-90 hover:shadow-green-500/50"><Package className="h-4 w-4" />Ouvrir un autre</button>}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         )}
-      </AnimatePresence>
-    </div>
+      </div>
+    </motion.div>
   );
 }

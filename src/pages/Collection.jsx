@@ -13,6 +13,7 @@ import CardComponent from "@/components/game/CardComponent";
 import CardDetail from "@/components/game/CardDetail";
 import CardSkeleton from "@/components/ui/CardSkeleton";
 import usePassiveIncome from "@/hooks/usePassiveIncome";
+import RewardRevealOverlay from "@/components/game/RewardRevealOverlay";
 
 export default function Collection() {
   const [search, setSearch] = useState("");
@@ -20,6 +21,7 @@ export default function Collection() {
   const [animeFilter, setAnimeFilter] = useState("all");
   const [sortBy, setSortBy] = useState(() => localStorage.getItem("collection_sort") || "collection_rarity");
   const [selectedCard, setSelectedCard] = useState(null);
+  const [giftReward, setGiftReward] = useState(null);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem("collection_view") || "grid");
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const queryClient = useQueryClient();
@@ -78,7 +80,8 @@ export default function Collection() {
   });
   const claimGiftMutation = useMutation({
     mutationFn: (giftId) => appClient.functions.invoke("claimPlayerGift", { gift_id: giftId }),
-    onSuccess: async () => {
+    onSuccess: async (response) => {
+      setGiftReward(response.data?.claimed || null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["giftInbox"] }),
         queryClient.invalidateQueries({ queryKey: ["cards"] }),
@@ -407,6 +410,9 @@ export default function Collection() {
             appliedFrame={frames.find((frame) => frame.id === selectedCard?.applied_frame_id)}
           />
         )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {giftReward && <RewardRevealOverlay reward={giftReward} title="Coffre cadeaux" onClose={() => setGiftReward(null)} />}
       </AnimatePresence>
     </div>
   );
