@@ -2303,7 +2303,7 @@ const serveStatic = (req, res, pathname) => {
   res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream" }); fs.createReadStream(file).pipe(res);
 };
 
-const handleRequest = async (req, res) => {
+export const handleRequest = async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname.startsWith("/api/uploads/") && req.method === "GET") {
@@ -2323,13 +2323,16 @@ const handleRequest = async (req, res) => {
 };
 
 let apiQueue = Promise.resolve();
-const server = http.createServer((req, res) => {
+export const requestHandler = (req, res) => {
   if (req.url?.startsWith("/api/") && !(req.method === "GET" && req.url.startsWith("/api/uploads/"))) {
     apiQueue = apiQueue.then(() => handleRequest(req, res), () => handleRequest(req, res));
     return;
   }
   handleRequest(req, res);
-});
+};
 
-const host = process.env.HOST || "0.0.0.0";
-server.listen(port, host, () => console.log(`API Manga Cards : http://${host}:${port}`));
+if (!process.env.VERCEL) {
+  const server = http.createServer(requestHandler);
+  const host = process.env.HOST || "0.0.0.0";
+  server.listen(port, host, () => console.log(`API Manga Cards : http://${host}:${port}`));
+}
