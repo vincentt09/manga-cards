@@ -19,7 +19,7 @@ if (fs.existsSync(envFile)) {
     if (match && !process.env[match[1]]) process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, "");
   }
 }
-const dataDir = path.join(root, "data");
+const dataDir = process.env.VERCEL ? "/tmp/manga-cards-data" : path.join(root, "data");
 const dbFile = path.join(dataDir, "database.json");
 const port = Number(process.env.PORT || 8787);
 const frontendUrl = process.env.APP_URL || "http://127.0.0.1:5173";
