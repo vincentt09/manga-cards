@@ -358,14 +358,14 @@ const ensureDailyBackup = async (db) => {
   const latest = await remote.collection("admin_backups").findOne({ reason: "automatic" }, { sort: { created_at: -1 }, projection: { created_at: 1 } });
   if (!latest || Date.now() - new Date(latest.created_at).getTime() >= 24 * 60 * 60 * 1000) await createDatabaseBackup(db, { reason: "automatic" });
 };
-const syncMongoCollection = async (collection, rows) => {
-  const ids = rows.map((row) => row.id);
+const syncMongoCollection = async (collection, rows, key = "id") => {
+  const ids = rows.map((row) => row[key]).filter(Boolean);
   if (rows.length) {
     await collection.bulkWrite(rows.map((row) => ({
-      replaceOne: { filter: { id: row.id }, replacement: row, upsert: true },
+      replaceOne: { filter: { [key]: row[key] }, replacement: row, upsert: true },
     })));
   }
-  await collection.deleteMany(ids.length ? { id: { $nin: ids } } : {});
+  await collection.deleteMany(ids.length ? { [key]: { $nin: ids } } : {});
 };
 const entityCollectionName = (name) => name === "Card" ? "cards" : `entity_${name}`;
 const stackOwnedCards = (cards = []) => {
@@ -403,9 +403,18 @@ const readDb = async () => {
     return dbCache;
   }
   const collectionNames = (await remote.listCollections({}, { nameOnly: true }).toArray()).map((item) => item.name);
-  const [users, cards] = await Promise.all([remote.collection("users").find({}).toArray(), remote.collection("cards").find({}).toArray()]);
+  const [users, cards, sessions, resetTokens, oauthStates] = await Promise.all([
+    remote.collection("users").find({}).toArray(),
+    remote.collection("cards").find({}).toArray(),
+    remote.collection("auth_sessions").find({}).toArray(),
+    remote.collection("auth_reset_tokens").find({}).toArray(),
+    remote.collection("auth_oauth_states").find({}).toArray(),
+  ]);
   if (!users.length && db.users.length) await remote.collection("users").insertMany(db.users);
   else db.users = users.map(({ _id, ...user }) => user);
+  db.sessions = sessions.map(({ _id, ...session }) => session);
+  db.resetTokens = resetTokens.map(({ _id, ...token }) => token);
+  db.oauthStates = oauthStates.map(({ _id, ...state }) => state);
   db.entities.Card ||= [];
   if (!cards.length && db.entities.Card.length) await remote.collection("cards").insertMany(db.entities.Card);
   else db.entities.Card = cards.map(({ _id, ...card }) => card);
@@ -446,6 +455,9 @@ const writeDb = async (db) => {
   if (remote) {
     await Promise.all([
       syncMongoCollection(remote.collection("users"), db.users),
+      syncMongoCollection(remote.collection("auth_sessions"), db.sessions, "token"),
+      syncMongoCollection(remote.collection("auth_reset_tokens"), db.resetTokens, "token"),
+      syncMongoCollection(remote.collection("auth_oauth_states"), db.oauthStates, "state"),
       ...Object.entries(db.entities).map(([name, rows]) => syncMongoCollection(remote.collection(entityCollectionName(name)), rows || [])),
     ]);
     const local = structuredClone(db);
