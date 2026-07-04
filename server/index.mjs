@@ -1311,6 +1311,55 @@ async function runFunction(req, res, name, db, user) {
     entities.Transaction.push({ id: id(), type: "admin_gift", description: `Cadeau admin : ${definition.name} ×${quantity}`, amount: 0, card_name: definition.name, created_by_id: target.id, created_by: target.email, created_date: now });
     recordAdminAudit(db, user, "player_card_granted", target, { card_definition_id: definition.id, card_name: definition.name, quantity });
     result = { card: resolvedCard(db, card), quantity };
+  } else if (name === "adminDeleteCardDefinitions") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const definitionIds = [...new Set(Array.isArray(input.card_definition_ids) ? input.card_definition_ids.map(String) : [])].filter(Boolean).slice(0, 20);
+    if (!definitionIds.length) return json(res, 400, { message: "Aucune carte à supprimer." });
+    const definitionIdSet = new Set(definitionIds);
+    const definitions = (entities.CardDefinition || []).filter((definition) => definitionIdSet.has(definition.id));
+    if (!definitions.length) return json(res, 404, { message: "Carte introuvable." });
+    const definitionById = new Map(definitions.map((definition) => [definition.id, definition]));
+    let preservedOwnedCards = 0;
+    for (const owned of entities.Card || []) {
+      const definition = definitionById.get(owned.card_definition_id);
+      if (!definition) continue;
+      owned.name ||= definition.name;
+      owned.anime ||= definition.anime;
+      owned.rarity ||= definition.rarity;
+      owned.image_url ||= definition.image_url || null;
+      owned.power ||= definition.basePower || definition.power || 1;
+      owned.attack ||= definition.baseAttack || definition.attack || 1;
+      owned.defense ||= definition.baseDefense || definition.defense || 1;
+      owned.speed ||= definition.baseSpeed || definition.speed || 1;
+      owned.card_definition_id = null;
+      owned.collection_id = null;
+      owned.edition = "legacy";
+      owned.updated_date = new Date().toISOString();
+      preservedOwnedCards += 1;
+    }
+    const removedOverrides = (entities.CardImageOverride || []).filter((override) => definitionIdSet.has(override.card_id)).length;
+    entities.CardImageOverride = (entities.CardImageOverride || []).filter((override) => !definitionIdSet.has(override.card_id));
+    let cancelledGifts = 0;
+    for (const gift of entities.PlayerGift || []) {
+      if (!definitionIdSet.has(gift.card_definition_id) || ["claimed", "cancelled"].includes(gift.status)) continue;
+      gift.status = "cancelled";
+      gift.cancelled_reason = "Carte retirée du catalogue par un administrateur.";
+      gift.updated_date = new Date().toISOString();
+      cancelledGifts += 1;
+    }
+    const removedListings = (entities.LimitedCardListing || []).filter((listing) => definitionIdSet.has(listing.card_definition_id)).length;
+    entities.LimitedCardListing = (entities.LimitedCardListing || []).filter((listing) => !definitionIdSet.has(listing.card_definition_id));
+    entities.CardDefinition = (entities.CardDefinition || []).filter((definition) => !definitionIdSet.has(definition.id));
+    recordAdminAudit(db, user, "card_definitions_deleted", null, {
+      removed_total: definitions.length,
+      definition_ids: definitions.map((definition) => definition.id),
+      cards: definitions.map((definition) => `${definition.name} · ${definition.rarity}`),
+      preserved_owned_cards: preservedOwnedCards,
+      removed_overrides: removedOverrides,
+      cancelled_gifts: cancelledGifts,
+      removed_listings: removedListings,
+    });
+    result = { removed: definitions.length, preserved_owned_cards: preservedOwnedCards, cancelled_gifts: cancelledGifts, removed_listings: removedListings };
   } else if (name === "adminRevokePlayerCard") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));

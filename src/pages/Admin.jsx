@@ -383,7 +383,7 @@ function EconomyTab({ profiles, onGiveCoinsAll, onGiveGemsAll }) {
 
 // ─── Main Admin Page ──────────────────────────────────────────────────────────
 function AuditLog({ entries }) {
-  const labels = { user_updated: "Compte modifié", user_deleted: "Compte supprimé", player_reset: "Progression réinitialisée", orphan_cleanup: "Données orphelines nettoyées", backup_created: "Sauvegarde créée", backup_restored: "Sauvegarde restaurée", user_muted: "Joueur rendu muet", user_unmuted: "Parole rendue", chat_report_resolved: "Signalement traité" };
+  const labels = { user_updated: "Compte modifié", user_deleted: "Compte supprimé", player_reset: "Progression réinitialisée", orphan_cleanup: "Données orphelines nettoyées", backup_created: "Sauvegarde créée", backup_restored: "Sauvegarde restaurée", user_muted: "Joueur rendu muet", user_unmuted: "Parole rendue", chat_report_resolved: "Signalement traité", card_definitions_deleted: "Carte(s) retirée(s)" };
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-border bg-card p-4 sm:p-5"><h2 className="flex items-center gap-2 font-display text-lg font-bold"><ClipboardList className="h-5 w-5 text-primary" />Journal de sécurité</h2><p className="mt-1 text-xs text-muted-foreground">Les actions sensibles des administrateurs sont conservées ici.</p></div>

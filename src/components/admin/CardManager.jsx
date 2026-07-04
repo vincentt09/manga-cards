@@ -1,12 +1,16 @@
 import React, { useState, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
-import { Upload, RefreshCw, Search, Filter, ImageOff, Check, Image, FileImage, Plus, Save, X, Package, Gift } from "lucide-react";
+import { Upload, RefreshCw, Search, Filter, ImageOff, Check, Image, FileImage, Plus, Save, X, Package, Gift, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { CARD_POOL } from "@/lib/gameData";
 import { appClient } from "@/api/appClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const VERSION_TYPES = [
   { value: "normale", label: "Normale", color: "from-slate-400 to-slate-600", textColor: "text-slate-400", borderColor: "border-slate-500/30" },
@@ -22,6 +26,8 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
   const [uploadingIds, setUploadingIds] = useState(new Set());
   const [successIds, setSuccessIds] = useState(new Set());
   const [showAddCharacter, setShowAddCharacter] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRefs = useRef({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -172,6 +178,42 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
     setShowAddCharacter(true);
   };
 
+  const requestDelete = (cards, label) => {
+    const uniqueCards = [...new Map(cards.filter(Boolean).map(card => [card.id, card])).values()];
+    if (uniqueCards.length) setDeleteTarget({ cards: uniqueCards, label });
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget?.cards?.length || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const response = await appClient.functions.invoke("adminDeleteCardDefinitions", {
+        card_definition_ids: deleteTarget.cards.map(card => card.id),
+      });
+      const result = response.data || response;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["card_definitions"] }),
+        queryClient.invalidateQueries({ queryKey: ["card_overrides"] }),
+        queryClient.invalidateQueries({ queryKey: ["cardImageOverrides"] }),
+        queryClient.invalidateQueries({ queryKey: ["cards"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin_cards"] }),
+        queryClient.invalidateQueries({ queryKey: ["all_cards_for_preview"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin_audit"] }),
+      ]);
+      toast({
+        title: `${result.removed || deleteTarget.cards.length} version(s) retirée(s)`,
+        description: result.preserved_owned_cards
+          ? `${result.preserved_owned_cards} exemplaire(s) déjà possédé(s) restent visibles comme cartes héritage.`
+          : "La carte ne pourra plus être obtenue dans les boosters.",
+      });
+      setDeleteTarget(null);
+    } catch (error) {
+      toast({ title: "Suppression impossible", description: error.message || "Une erreur est survenue.", variant: "destructive" });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -313,7 +355,18 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
                   <p className="mt-1 inline-flex rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary">📦 {group.collectionName}</p>
                 )}
               </div>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => requestDelete(Object.values(group.versions).flat(), group.characterName)}
+                  title={`Retirer ${group.characterName} de cette collection`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Retirer</span>
+                </Button>
                 {VERSION_TYPES.map(v => {
                   const hasVersion = group.versions[v.value]?.length > 0;
                   return (
@@ -512,6 +565,16 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
                             <RefreshCw className="w-3 h-3" />
                           </Button>
                         )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => requestDelete([card], `${card.name} · ${version.label}`)}
+                          title={`Supprimer la version ${version.label}`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -532,6 +595,32 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
           <p className="text-xs text-muted-foreground mt-1">Essayez de modifier vos filtres</p>
         </div>
       )}
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={open => !open && !isDeleting && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Retirer {deleteTarget?.label || "cette carte"} ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.cards?.length || 0} version(s) seront retirées du catalogue, des boosters et des cadeaux en attente.
+              Les exemplaires déjà obtenus par les joueurs seront conservés comme cartes héritage, sans rattachement au booster.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={event => {
+                event.preventDefault();
+                handleDelete();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {isDeleting ? "Suppression…" : "Supprimer définitivement"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
