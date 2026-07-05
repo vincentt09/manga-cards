@@ -173,15 +173,7 @@ export default function Marketplace() {
 
   const handleSellCard = async (card, price) => {
     setIsListing(true);
-    if (Number(card.duplicates || 1) > 1) await appClient.entities.Card.update(card.id, { duplicates: Number(card.duplicates) - 1 });
-    else await appClient.entities.Card.delete(card.id);
-    await appClient.entities.MarketListing.create({
-      card_id: card.id, seller_id: user?.id, seller_name: user?.full_name || "Joueur",
-      card_name: card.name, card_anime: card.anime, card_rarity: card.rarity,
-      card_variant: card.variant, card_power: card.power, card_attack: card.attack,
-      card_defense: card.defense, card_speed: card.speed, card_level: card.level || 1,
-      card_image_url: card.image_url, price, status: "active",
-    });
+    await appClient.functions.invoke("createMarketListing", { kind: "card", item_id: card.id, price });
     queryClient.invalidateQueries({ queryKey: ["card-listings"] });
     queryClient.invalidateQueries({ queryKey: ["cards"] });
     setIsListing(false);
@@ -192,17 +184,7 @@ export default function Marketplace() {
 
   const handleSellFrame = async (playerFrame, frameDef, price) => {
     setIsListing(true);
-    await appClient.entities.PlayerFrame.delete(playerFrame.id);
-    await appClient.entities.FrameListing.create({
-      frame_id: frameDef.id,
-      frame_name: frameDef.name,
-      frame_rarity: frameDef.rarity,
-      frame_effect: frameDef.effect,
-      seller_id: user?.id,
-      seller_name: user?.full_name || "Joueur",
-      price,
-      status: "active",
-    });
+    await appClient.functions.invoke("createMarketListing", { kind: "frame", item_id: playerFrame.id, price });
     queryClient.invalidateQueries({ queryKey: ["frame-listings"] });
     setIsListing(false);
     setShowSellModal(false);

@@ -8,7 +8,7 @@ import { GridFSBucket, MongoClient, ObjectId } from "mongodb";
 import { BOOSTER_TYPES, CARD_POOL, getCoinReward, getDuplicatesForUpgrade, getLevelFromXp, getTotalIncome, getXpReward } from "../src/lib/gameData.js";
 import { getTalent } from "../src/lib/talentData.js";
 import { LEVEL_REWARDS } from "../src/lib/levelRewards.js";
-import { DAILY_QUESTS_POOL, WEEKLY_QUESTS_POOL } from "../src/lib/questData.js";
+import { DAILY_QUESTS_POOL, WEEKLY_QUESTS_POOL, getExpiryDate } from "../src/lib/questData.js";
 import { PVE_BOSSES, PVE_DAILY_REPLAY_LIMIT, PVE_ENERGY_REGEN_MS, PVE_MAX_ENERGY } from "../src/lib/pveData.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -186,7 +186,7 @@ const createQuestRow = (item) => {
     progress: loginQuest ? 1 : 0,
     completed: loginQuest,
     claimed: false,
-    expires_at: item.expires_at,
+    expires_at: getExpiryDate(item.type),
   };
 };
 const advanceQuestProgress = (entities, userId, questIds, increment = 1) => {
@@ -953,6 +953,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   if (req.method === "POST" && action === "bulk") {
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Les talents doivent être débloqués depuis l'arbre de talents." });
     if (name === "PlayerProfile" && user.role !== "admin") return json(res, 403, { message: "Le profil joueur est créé automatiquement avec le compte." });
+    if (["MarketListing", "FrameListing"].includes(name) && user.role !== "admin") return json(res, 403, { message: "Utilise la mise en vente sécurisée." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
     if (!Array.isArray(input)) return json(res, 400, { message: "Liste invalide." });
@@ -987,6 +988,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     if (name === "PlayerTalent" && user.role !== "admin") return json(res, 403, { message: "Les talents doivent être débloqués depuis l'arbre de talents." });
     if (name === "PlayerProfile" && user.role !== "admin") return json(res, 403, { message: "Le profil joueur est créé automatiquement avec le compte." });
     if (name === "Auction" && user.role !== "admin") return json(res, 403, { message: "Utilise la création d’enchère sécurisée." });
+    if (["MarketListing", "FrameListing"].includes(name) && user.role !== "admin") return json(res, 403, { message: "Utilise la mise en vente sécurisée." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
     if (name === "TitleDefinition") {
@@ -1013,6 +1015,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   if (req.method === "GET") return json(res, 200, present(item));
   if (req.method === "PUT") {
     if (!canWrite(item)) return json(res, 403, { message: "Modification interdite." });
+    if (["MarketListing", "FrameListing"].includes(name) && user.role !== "admin") return json(res, 403, { message: "Une annonce active ne peut pas être modifiée directement." });
     const input = await body(req); delete input.id; delete input.created_by_id; delete input.created_by; delete input.created_date;
     if (name === "TitleDefinition") {
       if ("label" in input) input.label = String(input.label || "").replace(/\s+/g, " ").trim().slice(0, 50);
@@ -1038,6 +1041,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
   }
   if (req.method === "DELETE") {
     if (!canWrite(item) || (name === "PlayerTalent" && user.role !== "admin")) return json(res, 403, { message: "Suppression interdite." });
+    if (["MarketListing", "FrameListing"].includes(name) && user.role !== "admin") return json(res, 403, { message: "Utilise l’annulation sécurisée pour récupérer l’objet." });
     if (name === "PlayerFrame" && item.frame_id === ENDGAME_FRAME_ID && user.role !== "admin") return json(res, 403, { message: "Une relique ultime ne peut être vendue ni supprimée." });
     db.entities[name] = rows.filter((row) => row.id !== action); await writeDb(db); return json(res, 200, { success: true });
   }
@@ -1088,7 +1092,7 @@ async function runFunction(req, res, name, db, user) {
     entities.PlayerGift ||= [];
     const gift = entities.PlayerGift.find((item) => item.id === String(input.gift_id || "") && rowBelongsToUser(item, user));
     if (!gift) return json(res, 404, { message: "Cadeau introuvable." });
-    if (gift.status === "claimed") return json(res, 409, { message: "Ce cadeau a dÃ©jÃ  Ã©tÃ© rÃ©clamÃ©." });
+    if (gift.status === "claimed") return json(res, 409, { message: "Ce cadeau a déjà été réclamé." });
     if (gift.status === "cancelled") return json(res, 410, { message: "Ce cadeau n'est plus disponible." });
     const now = new Date().toISOString();
     let claimed;
@@ -1097,13 +1101,13 @@ async function runFunction(req, res, name, db, user) {
       if (!definition) return json(res, 404, { message: "La carte cadeau n'existe plus." });
       claimed = { kind: "card", card: grantCardToPlayer(db, user, definition, gift.quantity || 1, "gift_claim") };
       entities.Transaction ||= [];
-      entities.Transaction.push({ id: id(), type: "gift_claim", description: `Cadeau rÃ©clamÃ© : ${definition.name} Ã—${Math.max(1, Number(gift.quantity || 1))}`, amount: 0, card_name: definition.name, created_by_id: user.id, created_by: user.email, created_date: now });
+      entities.Transaction.push({ id: id(), type: "gift_claim", description: `Cadeau réclamé : ${definition.name} ×${Math.max(1, Number(gift.quantity || 1))}`, amount: 0, card_name: definition.name, created_by_id: user.id, created_by: user.email, created_date: now });
     } else if (gift.kind === "frame") {
       const frame = (entities.CardFrame || []).find((item) => item.id === gift.frame_id && item.is_active !== false);
       if (!frame) return json(res, 404, { message: "Le cadre cadeau n'existe plus." });
       claimed = { kind: "frame", frame: grantFrameToPlayer(db, user, frame, "gift_claim") };
       entities.Transaction ||= [];
-      entities.Transaction.push({ id: id(), type: "gift_claim", description: `Cadre rÃ©clamÃ© : ${frame.name}`, amount: 0, created_by_id: user.id, created_by: user.email, created_date: now });
+      entities.Transaction.push({ id: id(), type: "gift_claim", description: `Cadre réclamé : ${frame.name}`, amount: 0, created_by_id: user.id, created_by: user.email, created_date: now });
     } else return json(res, 400, { message: "Type de cadeau invalide." });
     Object.assign(gift, { status: "claimed", claimed_at: now, updated_date: now });
     result = { gift, claimed };
@@ -1309,7 +1313,7 @@ async function runFunction(req, res, name, db, user) {
       stats: { unique_cards: cards.length, total_copies: cards.reduce((sum, card) => sum + Math.max(1, Number(card.duplicates || 1)), 0), frames: ownedFrames.length, gifts: pendingGifts.length },
     };
   } else if (name === "adminGrantPlayerCard" && input.delivery_mode !== "direct") {
-    if (user.role !== "admin") return json(res, 403, { message: "AccÃ¨s administrateur requis." });
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
     const definition = (entities.CardDefinition || []).find((item) => item.id === String(input.card_definition_id || "") && item.is_active !== false);
     if (!target || !definition) return json(res, 404, { message: "Joueur ou carte introuvable." });
@@ -1424,7 +1428,7 @@ async function runFunction(req, res, name, db, user) {
     recordAdminAudit(db, user, "player_card_revoked", target, { card_id: card.id, card_name: card.name });
     result = { removed: true };
   } else if (name === "adminGrantPlayerFrame" && input.delivery_mode !== "direct") {
-    if (user.role !== "admin") return json(res, 403, { message: "AccÃ¨s administrateur requis." });
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
     const frame = (entities.CardFrame || []).find((item) => item.id === String(input.frame_id || "") && item.is_active !== false);
     if (!target || !frame) return json(res, 404, { message: "Joueur ou cadre introuvable." });
@@ -1463,7 +1467,7 @@ async function runFunction(req, res, name, db, user) {
     recordAdminAudit(db, user, "player_frame_revoked", target, { frame_id: owned.frame_id });
     result = { removed: true };
   } else if (name === "adminRepairPlayerInventory") {
-    if (user.role !== "admin") return json(res, 403, { message: "AccÃ¨s administrateur requis." });
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
     if (!target) return json(res, 404, { message: "Utilisateur introuvable." });
     let repairedCards = 0;
@@ -1852,6 +1856,45 @@ async function runFunction(req, res, name, db, user) {
   } else if (name === "getAuctions") {
     settleExpiredAuctions(db);
     result = (entities.Auction || []).sort((a, b) => new Date(a.ends_at) - new Date(b.ends_at));
+  } else if (name === "createMarketListing") {
+    if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
+    const kind = input.kind === "frame" ? "frame" : "card";
+    const rawPrice = Number(input.price);
+    if (!Number.isFinite(rawPrice) || rawPrice < 1) return json(res, 400, { message: "Prix invalide." });
+    const price = Math.min(1_000_000_000, Math.floor(rawPrice));
+    const now = new Date().toISOString();
+    let listing;
+    if (kind === "card") {
+      const card = (entities.Card || []).find((item) => item.id === input.item_id && item.created_by_id === user.id);
+      if (!card) return json(res, 404, { message: "Carte introuvable dans ta collection." });
+      listing = {
+        id: id(), card_id: card.id, seller_id: user.id, seller_name: profile.display_name || user.full_name || "Joueur",
+        card_name: card.name, card_anime: card.anime, card_rarity: card.rarity, card_variant: card.variant,
+        card_power: card.power, card_attack: card.attack, card_defense: card.defense, card_speed: card.speed,
+        card_level: card.level || 1, card_image_url: card.image_url || null, price, status: "active",
+        created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now,
+      };
+      if (Number(card.duplicates || 1) > 1) Object.assign(card, { duplicates: Number(card.duplicates) - 1, updated_date: now });
+      else entities.Card = entities.Card.filter((item) => item.id !== card.id);
+      entities.MarketListing ||= [];
+      entities.MarketListing.push(listing);
+    } else {
+      const ownedFrame = (entities.PlayerFrame || []).find((item) => item.id === input.item_id && item.created_by_id === user.id);
+      if (!ownedFrame) return json(res, 404, { message: "Cadre introuvable dans ton inventaire." });
+      const frame = (entities.CardFrame || []).find((item) => item.id === ownedFrame.frame_id);
+      if (!frame) return json(res, 404, { message: "Définition du cadre introuvable." });
+      if (frame.id === ENDGAME_FRAME_ID || frame.source_type === "endgame") return json(res, 403, { message: "Une relique ultime ne peut pas être vendue." });
+      listing = {
+        id: id(), frame_id: frame.id, frame_name: frame.name, frame_rarity: frame.rarity, frame_effect: frame.effect,
+        seller_id: user.id, seller_name: profile.display_name || user.full_name || "Joueur", price, status: "active",
+        created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now,
+      };
+      entities.PlayerFrame = entities.PlayerFrame.filter((item) => item.id !== ownedFrame.id);
+      entities.FrameListing ||= [];
+      entities.FrameListing.push(listing);
+    }
+    advanceQuestProgress(entities, user.id, ["sell_1_card", "w_sell_3"]);
+    result = listing;
   } else if (name === "createAuction") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     const card = (entities.Card || []).find((item) => item.id === input.card_id && item.created_by_id === user.id);

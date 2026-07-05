@@ -187,7 +187,7 @@ export default function Profile() {
             <StatCard icon={Layers} label="Cartes" value={cards.length} color="text-primary" />
             <StatCard icon={Package} label="Boosters" value={profile?.boosters_opened || 0} color="text-accent" />
             <StatCard icon={Zap} label="Puissance" value={stats.totalPower} color="text-red-400" />
-            <StatCard icon={Crown} label="Légendaires" value={(stats.rarityCount.legendary || 0) + (stats.rarityCount.secret || 0)} color="text-yellow-400" />
+            <StatCard icon={Crown} label="Légendaires" value={(stats.rarityCount.legendaire || 0) + (stats.rarityCount["secrète"] || 0) + (stats.rarityCount.manga_god || 0)} color="text-yellow-400" />
           </div>
         )}
 

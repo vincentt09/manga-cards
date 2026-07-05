@@ -3,14 +3,13 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowUp, Crown, Package, Shield, Sparkles, Star, Wind, Zap } from "lucide-react";
 import { RARITY_CONFIG } from "@/lib/gameData";
 
-const highRarities = new Set(["legendaire", "secrète", "secrÃ¨te", "manga_god"]);
+const highRarities = new Set(["legendaire", "secrète", "manga_god"]);
 
 const particleColors = {
   normale: ["#94a3b8", "#cbd5e1"],
   legendaire: ["#fbbf24", "#f59e0b", "#fde68a", "#fff7ed"],
   "secrète": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff"],
   "secrète": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff"],
-  "secrÃ¨te": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff"],
   manga_god: ["#22d3ee", "#67e8f9", "#a5f3fc", "#ffffff"],
 };
 
@@ -20,7 +19,6 @@ function getDisplayImage(card, imageOverrides = []) {
     legendaire: ["_l"],
     "secrète": ["_s"],
     "secrète": ["_s"],
-    "secrÃ¨te": ["_s"],
     manga_god: ["_mg"],
   }[card.rarity] || ["_n"];
 
