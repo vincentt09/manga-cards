@@ -19,6 +19,7 @@ import { useToast } from "@/components/ui/use-toast";
 import ProfileCustomization, { BANNER_COLORS, PROFILE_THEMES } from "@/components/profile/ProfileCustomization";
 import FriendsPanel from "@/components/profile/FriendsPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { getUnlockedProfileBadges } from "@/lib/profileBadges";
 
 function StatCard({ icon: Icon, label, value, color }) {
   return (
@@ -60,6 +61,8 @@ export default function Profile() {
   const showcaseCards = (profile?.showcase_card_ids || []).map(id => cards.find(card => card.id === id)).filter(Boolean);
   const isLoading = isLoadingProfile || isLoadingCards;
   const levelInfo = getLevelFromXp(profile?.xp || 0);
+  const unlockedBadges = getUnlockedProfileBadges({ profile, cards, level: levelInfo.level });
+  const selectedBadges = (profile?.selected_badge_ids || []).map(id => unlockedBadges.find(badge => badge.id === id)).filter(Boolean);
   const xpPercent = (levelInfo.currentXp / levelInfo.xpToNext) * 100;
 
   const claimMutation = useMutation({
@@ -132,6 +135,7 @@ export default function Profile() {
                 <div className="inline-flex items-center gap-1.5 mt-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1 text-[11px] font-bold text-yellow-300">
                   <Crown className="w-3 h-3" /> {equippedTitle.label}
                 </div>
+                {profile?.show_badges !== false && selectedBadges.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{selectedBadges.map(badge => <span key={badge.id} title={badge.description} className={`rounded-full border px-2 py-1 text-[10px] font-bold ${badge.tone}`}>{badge.icon} {badge.label}</span>)}</div>}
                 {profile?.status_text && <p className="mt-2 inline-block rounded-lg bg-white/5 px-2 py-1 text-xs">{profile?.status_emoji || "✨"} {profile.status_text}</p>}
                 {profile?.favorite_anime && <p className="text-xs text-primary mt-1">Manga préféré : {profile.favorite_anime}</p>}
                 {profile?.location && <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground"><MapPin className="h-3 w-3" />{profile.location}</p>}
@@ -153,7 +157,7 @@ export default function Profile() {
               </Dialog>
             </div>
 
-            {showcaseCards.length > 0 && <div className="mt-5 border-t border-white/10 pt-4"><p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Vitrine de collection</p><div className="grid max-w-md grid-cols-3 gap-3">{showcaseCards.map(card => <div key={card.id} className="overflow-hidden rounded-xl border border-white/10 bg-black/20"><img src={card.image_url} alt={card.name} className="aspect-[2/3] w-full object-cover object-top" /><p className="truncate p-1.5 text-center text-[9px] font-bold">{card.name}</p></div>)}</div></div>}
+            {showcaseCards.length > 0 && <div className="mt-5 border-t border-white/10 pt-4"><p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Vitrine de collection</p><div className="grid grid-cols-3 gap-3 sm:grid-cols-6">{showcaseCards.map(card => <div key={card.id} className="overflow-hidden rounded-xl border border-white/10 bg-black/20"><img src={card.image_url} alt={card.name} className="aspect-[2/3] w-full object-cover object-top" /><p className="truncate p-1.5 text-center text-[9px] font-bold">{card.name}</p></div>)}</div></div>}
 
             {/* XP Bar */}
             <div className="game-chip mt-4 rounded-xl p-3">

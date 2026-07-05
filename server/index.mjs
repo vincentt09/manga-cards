@@ -10,6 +10,7 @@ import { getTalent } from "../src/lib/talentData.js";
 import { LEVEL_REWARDS } from "../src/lib/levelRewards.js";
 import { DAILY_QUESTS_POOL, WEEKLY_QUESTS_POOL, getExpiryDate } from "../src/lib/questData.js";
 import { PVE_BOSSES, PVE_DAILY_REPLAY_LIMIT, PVE_ENERGY_REGEN_MS, PVE_MAX_ENERGY } from "../src/lib/pveData.js";
+import { getUnlockedProfileBadges } from "../src/lib/profileBadges.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envFile = path.join(root, ".env");
@@ -143,7 +144,7 @@ const repairDuplicatePlayerProfiles = (db) => {
   const removedIds = new Set();
   const merged = [];
   const maxFields = ["coins", "gems", "xp", "level", "talent_points", "boosters_opened", "total_cards", "pity_counter", "pve_wins", "pve_losses", "pve_max_stage", "pve_energy"];
-  const unionFields = ["claimed_rewards", "pve_cleared_stages", "showcase_card_ids", "system_market_purchases"];
+  const unionFields = ["claimed_rewards", "pve_cleared_stages", "showcase_card_ids", "selected_badge_ids", "system_market_purchases"];
   const objectMaxFields = ["boosters_count", "pve_stage_stars", "pve_daily_wins"];
   for (const duplicates of groups.values()) {
     if (duplicates.length < 2) continue;
@@ -1220,9 +1221,13 @@ async function runFunction(req, res, name, db, user) {
     const allowedLayouts = new Set(["standard", "compact", "showcase"]);
     const allowedVisibility = new Set(["public", "unlisted", "private"]);
     const accent = /^#[0-9a-f]{6}$/i.test(String(input.accent_color || "")) ? String(input.accent_color) : "#8b5cf6";
-    const showcaseIds = [...new Set(Array.isArray(input.showcase_card_ids) ? input.showcase_card_ids.map(String) : [])].slice(0, 3);
+    const showcaseIds = [...new Set(Array.isArray(input.showcase_card_ids) ? input.showcase_card_ids.map(String) : [])].slice(0, 6);
     const ownedIds = new Set((entities.Card || []).filter(card => card.created_by_id === user.id).map(card => card.id));
     if (showcaseIds.some(cardId => !ownedIds.has(cardId))) return json(res, 403, { message: "Une carte de la vitrine ne t'appartient pas." });
+    const ownedCards = (entities.Card || []).filter(card => card.created_by_id === user.id);
+    const playerLevel = getLevelFromXp(Number(profile.xp || 0)).level;
+    const unlockedBadgeIds = new Set(getUnlockedProfileBadges({ profile, cards: ownedCards, level: playerLevel }).map(badge => badge.id));
+    const selectedBadgeIds = [...new Set(Array.isArray(input.selected_badge_ids) ? input.selected_badge_ids.map(String) : [])].filter(badgeId => unlockedBadgeIds.has(badgeId)).slice(0, 5);
     const socialLinks = (Array.isArray(input.social_links) ? input.social_links : []).slice(0, 4).map(link => {
       try {
         const url = new URL(String(link.url || ""));
@@ -1242,7 +1247,7 @@ async function runFunction(req, res, name, db, user) {
       status_text: String(input.status_text || "").trim().slice(0, 80), status_emoji: String(input.status_emoji || "").trim().slice(0, 8),
       presence_style: allowedPresence.has(input.presence_style) ? input.presence_style : "online",
       favorite_anime: String(input.favorite_anime || "").trim().slice(0, 40), location: String(input.location || "").trim().slice(0, 40),
-      social_links: socialLinks, showcase_card_ids: showcaseIds,
+      social_links: socialLinks, showcase_card_ids: showcaseIds, selected_badge_ids: selectedBadgeIds,
       profile_visibility: allowedVisibility.has(input.profile_visibility) ? input.profile_visibility : "public",
       show_stats: input.show_stats !== false, show_badges: input.show_badges !== false, show_activity: input.show_activity === true,
       updated_date: new Date().toISOString(),
@@ -1256,8 +1261,12 @@ async function runFunction(req, res, name, db, user) {
     if (!targetProfile || !targetUser) return json(res, 404, { message: "Profil introuvable." });
     const isOwner = targetUserId === user.id || user.role === "admin";
     if (targetProfile.profile_visibility === "private" && !isOwner) return json(res, 403, { message: "Ce profil est privé." });
-    const showcaseIds = new Set(targetProfile.showcase_card_ids || []);
-    const showcase = (entities.Card || []).filter(card => card.created_by_id === targetUserId && showcaseIds.has(card.id)).map(card => resolvedCard(db, card));
+    const ownedCards = (entities.Card || []).filter(card => card.created_by_id === targetUserId);
+    const ownedById = new Map(ownedCards.map(card => [card.id, card]));
+    const showcase = (targetProfile.showcase_card_ids || []).map(cardId => ownedById.get(cardId)).filter(Boolean).map(card => resolvedCard(db, card));
+    const badgeCatalog = getUnlockedProfileBadges({ profile: targetProfile, cards: ownedCards, level: getLevelFromXp(Number(targetProfile.xp || 0)).level });
+    const badgesById = new Map(badgeCatalog.map(badge => [badge.id, badge]));
+    const badges = (targetProfile.selected_badge_ids || []).map(badgeId => badgesById.get(badgeId)).filter(Boolean).map(({ check, ...badge }) => badge);
     const publicFields = ["display_name", "avatar_url", "banner_url", "banner_id", "profile_theme", "accent_color", "profile_effect", "profile_layout", "bio", "pronouns", "status_text", "status_emoji", "presence_style", "favorite_anime", "location", "social_links", "equipped_title_id", "created_date", "show_stats", "show_badges", "show_activity", "pve_wins", "pve_max_stage", "boosters_opened", "xp"];
     const safeProfile = Object.fromEntries(publicFields.map(field => [field, targetProfile[field]]));
     const activity = targetProfile.show_activity === true ? [
@@ -1266,7 +1275,7 @@ async function runFunction(req, res, name, db, user) {
     ].sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, 5) : [];
     const relation = (entities.Friendship || []).find(row => [row.requester_id, row.recipient_id].includes(user.id) && [row.requester_id, row.recipient_id].includes(targetUserId));
     const friendship = !relation ? { status: "none" } : relation.status === "accepted" ? { id: relation.id, status: "friend" } : relation.status === "blocked" ? { id: relation.id, status: "blocked" } : { id: relation.id, status: relation.requester_id === user.id ? "outgoing" : "incoming" };
-    result = { user_id: targetUserId, profile: safeProfile, showcase, activity, friendship, is_owner: targetUserId === user.id, collection_size: (entities.Card || []).filter(card => card.created_by_id === targetUserId).length };
+    result = { user_id: targetUserId, profile: safeProfile, showcase, badges, activity, friendship, is_owner: targetUserId === user.id, collection_size: ownedCards.length };
   } else if (name === "getTitleCatalog") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     result = (entities.TitleDefinition || [])
