@@ -902,7 +902,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
       const found = db.users.find((item) => item.id === action); if (!found) return json(res, 404, { message: "Utilisateur introuvable." });
       if (found.id === user.id) return json(res, 400, { message: "Tu ne peux pas supprimer ton propre compte administrateur." });
       if (found.role === "admin" && db.users.filter((candidate) => candidate.role === "admin").length <= 1) return json(res, 400, { message: "Le dernier administrateur ne peut pas être supprimé." });
-      const belongsToUser = (row) => [row.created_by_id, row.user_id, row.owner_id, row.seller_id, row.requester_id, row.recipient_id].includes(found.id)
+      const belongsToUser = (row) => [row.created_by_id, row.user_id, row.owner_id, row.seller_id, row.requester_id, row.recipient_id, row.sender_id].includes(found.id)
         || row.created_by === found.email;
       const removedByEntity = {};
       for (const [entityName, rows] of Object.entries(db.entities)) {
@@ -934,13 +934,14 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     return json(res, 403, { message: "Operation interdite sur les utilisateurs." });
   }
   db.entities[name] ||= []; const rows = db.entities[name];
-  const privateEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerGift", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "UserCosmetic", "ProfileCustomization"]);
+  const privateEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerGift", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "DirectMessage", "UserCosmetic", "ProfileCustomization"]);
   const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats", "TitleDefinition"]);
   const collaborativeEntities = new Set();
   const canAccess = (row) => user.role === "admin" || !privateEntities.has(name) || row.created_by_id === user.id;
   const canWrite = (row) => user.role === "admin" || collaborativeEntities.has(name) || row.created_by_id === user.id;
   const visibleRows = rows.filter(canAccess);
   const present = (row) => name === "Card" ? resolvedCard(db, row) : row;
+  if (name === "DirectMessage") return json(res, 405, { message: "Utilise la messagerie privée sécurisée." });
   if (req.method === "GET" && !action) {
     let result = sortRows(visibleRows, searchParams.get("sort")); const skip = Number(searchParams.get("skip") || 0); const limit = Number(searchParams.get("limit") || result.length);
     return json(res, 200, result.slice(skip, skip + limit).map(present));
@@ -1112,7 +1113,9 @@ async function runFunction(req, res, name, db, user) {
       const targetUser = db.users.find(candidate => candidate.id === targetId);
       const targetProfile = (entities.PlayerProfile || []).find(candidate => candidate.created_by_id === targetId);
       if (!targetUser || !targetProfile) return null;
-      return { id: relation.id, user_id: targetId, display_name: targetProfile.display_name || targetUser.full_name || "Joueur", avatar_url: targetProfile.avatar_url || targetUser.avatar_url || null, status_text: targetProfile.status_text || "", status_emoji: targetProfile.status_emoji || "", presence_style: targetProfile.presence_style || "invisible", player_level: getLevelFromXp(Number(targetProfile.xp || 0)).level, since: relation.accepted_at || relation.created_date };
+      const unreadCount = (entities.DirectMessage || []).filter(message => message.sender_id === targetId && message.recipient_id === user.id && !message.read_at).length;
+      const lastMessage = (entities.DirectMessage || []).filter(message => [message.sender_id, message.recipient_id].includes(user.id) && [message.sender_id, message.recipient_id].includes(targetId)).sort((a, b) => new Date(b.created_date) - new Date(a.created_date))[0];
+      return { id: relation.id, user_id: targetId, display_name: targetProfile.display_name || targetUser.full_name || "Joueur", avatar_url: targetProfile.avatar_url || targetUser.avatar_url || null, status_text: targetProfile.status_text || "", status_emoji: targetProfile.status_emoji || "", presence_style: targetProfile.presence_style || "invisible", player_level: getLevelFromXp(Number(targetProfile.xp || 0)).level, since: relation.accepted_at || relation.created_date, unread_count: unreadCount, last_message_at: lastMessage?.created_date || null };
     };
     const accepted = friendships.filter(row => row.status === "accepted" && [row.requester_id, row.recipient_id].includes(user.id));
     const incoming = friendships.filter(row => row.status === "pending" && row.recipient_id === user.id);
@@ -1161,6 +1164,40 @@ async function runFunction(req, res, name, db, user) {
     } else if (action === "block") {
       friendship.status = "blocked"; friendship.blocked_by_id = user.id; friendship.updated_date = new Date().toISOString(); result = friendship;
     } else return json(res, 400, { message: "Action d’amitié invalide." });
+  } else if (["getFriendConversation", "sendFriendMessage"].includes(name)) {
+    const targetId = String(input.user_id || "");
+    const friendship = (entities.Friendship || []).find(row => row.status === "accepted" && [row.requester_id, row.recipient_id].includes(user.id) && [row.requester_id, row.recipient_id].includes(targetId));
+    if (!friendship || !targetId || targetId === user.id) return json(res, 403, { message: "Cette conversation est réservée à tes amis." });
+    entities.DirectMessage ||= [];
+    if (name === "getFriendConversation") {
+      const now = new Date().toISOString();
+      const conversation = entities.DirectMessage
+        .filter(message => [message.sender_id, message.recipient_id].includes(user.id) && [message.sender_id, message.recipient_id].includes(targetId))
+        .sort((a, b) => new Date(a.created_date) - new Date(b.created_date))
+        .slice(-100);
+      let markedRead = false;
+      for (const message of conversation) if (message.recipient_id === user.id && !message.read_at) { message.read_at = now; markedRead = true; }
+      if (markedRead) await writeDb(db);
+      return json(res, 200, { data: { messages: conversation, friend_user_id: targetId } });
+    } else {
+      if (user.chat_muted_until && new Date(user.chat_muted_until).getTime() > Date.now()) return json(res, 403, { message: "Tu ne peux pas envoyer de message pendant une sanction de chat." });
+      const messageText = String(input.message || "").replace(/\s+/g, " ").trim().slice(0, 500);
+      if (!messageText) return json(res, 400, { message: "Le message est vide." });
+      const lastSent = [...entities.DirectMessage].reverse().find(message => message.sender_id === user.id);
+      if (lastSent && Date.now() - new Date(lastSent.created_date).getTime() < 700) return json(res, 429, { message: "Attends un instant avant de renvoyer un message." });
+      const targetUser = db.users.find(candidate => candidate.id === targetId);
+      const created = { id: id(), sender_id: user.id, recipient_id: targetId, message: messageText, read_at: null, created_by_id: user.id, created_by: user.email, recipient_email: targetUser?.email || null, created_date: new Date().toISOString(), updated_date: new Date().toISOString() };
+      entities.DirectMessage.push(created);
+      if (entities.DirectMessage.length > 10_000) entities.DirectMessage = entities.DirectMessage.slice(-10_000);
+      result = created;
+    }
+  } else if (name === "deleteFriendMessage") {
+    entities.DirectMessage ||= [];
+    const messageId = String(input.message_id || "");
+    const message = entities.DirectMessage.find(item => item.id === messageId);
+    if (!message || (message.sender_id !== user.id && user.role !== "admin")) return json(res, 404, { message: "Message introuvable." });
+    entities.DirectMessage = entities.DirectMessage.filter(item => item.id !== messageId);
+    result = { removed: true, message_id: messageId };
   } else if (name === "updateProfileCustomization") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     const displayName = String(input.display_name || "").replace(/\s+/g, " ").trim();
@@ -1597,7 +1634,7 @@ async function runFunction(req, res, name, db, user) {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const validUserIds = new Set(db.users.map((candidate) => candidate.id));
     const validEmails = new Set(db.users.map((candidate) => candidate.email));
-    const playerEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
+    const playerEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "DirectMessage", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
     const removed = {};
     for (const entityName of playerEntities) {
       const rows = entities[entityName] || [];
@@ -1622,7 +1659,7 @@ async function runFunction(req, res, name, db, user) {
     if (target.id === user.id) return json(res, 400, { message: "Utilise un compte joueur distinct pour tester une réinitialisation." });
     const targetProfile = (entities.PlayerProfile || []).find((item) => item.created_by_id === target.id);
     if (!targetProfile) return json(res, 404, { message: "Profil joueur introuvable." });
-    const playerEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
+    const playerEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "DirectMessage", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
     const removed = {};
     for (const entityName of playerEntities) {
       const rows = entities[entityName] || [];
