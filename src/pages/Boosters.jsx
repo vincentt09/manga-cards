@@ -10,36 +10,14 @@ import CurrencyBar from "@/components/game/CurrencyBar";
 import ImmersiveCardReveal from "@/components/game/ImmersiveCardReveal";
 import BoosterPreviewModal from "@/components/boosters/BoosterPreviewModal";
 import {
-  BOOSTER_TYPES, CARD_POOL, getLevelFromXp
+  BOOSTER_TYPES, getLevelFromXp
 } from "@/lib/gameData";
-
-function getCoverImages(booster, imageOverrides = [], catalog = CARD_POOL) {
-  const chars = catalog.filter((card) => {
-    if (booster.collector_only && !card.is_collector) return false;
-    if (booster.is_custom || card.collection_id === booster.id) return card.collection_id === booster.id;
-    if (booster.is_premium) return true;
-    return card.anime === booster.anime;
-  });
-  const covers = [];
-  const seen = new Set();
-  for (const card of chars) {
-    if (seen.has(card.name)) continue;
-    const override = imageOverrides.find(item => item.card_id === card.id);
-    const imageUrl = override?.image_url || card.image_url;
-    if (!imageUrl) continue;
-    seen.add(card.name);
-    covers.push(imageUrl);
-    if (covers.length === 3) break;
-  }
-  return covers;
-}
 
 const cleanBoosterDescription = (description = "") => description
   .replace(/\s*[·•-]\s*(Légendaire|Secrète|Manga God)\s+garantie.*$/iu, "")
   .replace(/cartes rares garanties/giu, "cartes rares");
 
-function BoosterCard({ booster, onOpen, onPreview, canAfford, isOpening, isLocked, playerLevel, price, imageOverrides = [], allCards = [] }) {
-  const covers = getCoverImages(booster, imageOverrides, allCards);
+function BoosterCard({ booster, onOpen, onPreview, canAfford, isOpening, isLocked, playerLevel, price, allCards = [] }) {
   const cardCount = allCards.filter(c => booster.is_custom ? c.collection_id === booster.id : (booster.is_premium ? true : c.anime === booster.anime)).length;
   const isUnavailable = booster.availability && booster.availability !== "available";
 
@@ -73,32 +51,20 @@ function BoosterCard({ booster, onOpen, onPreview, canAfford, isOpening, isLocke
         </div>
       )}
 
-      {/* Gradient header with character images and shimmer effect */}
+      {/* Illustration abstraite du paquet : aucune image de carte avant le tirage. */}
       <div className={`relative h-40 bg-gradient-to-br ${booster.color} overflow-hidden`}>
         {/* Shimmer overlay for premium boosters */}
         {booster.anime === null && (
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-50 animate-[shimmer_3s_infinite]" style={{ backgroundSize: '200% 100%' }} />
         )}
         
-        {covers.length > 0 ? (
-          <div className="absolute inset-0 flex">
-            {covers.map((img, i) => (
-              <motion.div 
-                key={i} 
-                className="flex-1 overflow-hidden"
-                initial={{ rotate: (i - 1) * 3, scale: 1.1 }}
-                whileHover={{ scale: 1.15, rotate: (i - 1) * 2 }}
-                transition={{ duration: 0.3 }}
-              >
-                <img src={img} alt="" loading="lazy" decoding="async" draggable="false" className="w-full h-full object-cover object-top opacity-80 group-hover:opacity-100 transition-opacity duration-300" />
-              </motion.div>
-            ))}
+        <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(255,255,255,.22)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.22)_1px,transparent_1px)] [background-size:22px_22px]" />
+        <div className="absolute left-1/2 top-1/2 h-28 w-28 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/25 bg-black/10 shadow-[0_0_45px_rgba(255,255,255,.2)]" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="grid h-20 w-20 place-items-center rounded-2xl border border-white/30 bg-black/20 shadow-2xl backdrop-blur-sm transition-transform duration-300 group-hover:scale-105 group-hover:rotate-2">
+            <Package className="h-11 w-11 text-white drop-shadow-[0_0_12px_rgba(255,255,255,.65)]" />
           </div>
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Package className="w-16 h-16 text-white/10" />
-          </div>
-        )}
+        </div>
         <div className={`absolute inset-0 bg-gradient-to-t ${booster.color} opacity-60`} />
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-card/90" />
 

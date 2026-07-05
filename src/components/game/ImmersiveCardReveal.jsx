@@ -9,7 +9,6 @@ const particleColors = {
   normale: ["#94a3b8", "#cbd5e1"],
   legendaire: ["#fbbf24", "#f59e0b", "#fde68a", "#fff7ed"],
   "secrète": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff"],
-  "secrète": ["#f43f5e", "#fb7185", "#fda4af", "#ffffff"],
   manga_god: ["#22d3ee", "#67e8f9", "#a5f3fc", "#ffffff"],
 };
 
@@ -17,7 +16,6 @@ function getDisplayImage(card, imageOverrides = []) {
   const suffixes = {
     normale: ["_n", "_b"],
     legendaire: ["_l"],
-    "secrète": ["_s"],
     "secrète": ["_s"],
     manga_god: ["_mg"],
   }[card.rarity] || ["_n"];
@@ -220,13 +218,34 @@ export default function ImmersiveCardReveal({ cards, onComplete, booster, imageO
   const allRevealed = revealedCount >= cards.length;
   const particles = useMemo(() => reduceMotion ? [] : [...Array(34)].map(() => ({ x: Math.random() * 100, d: Math.random() * 2, t: 4 + Math.random() * 2 })), [reduceMotion]);
 
+  useEffect(() => {
+    const scrollY = window.scrollY;
+    const previous = {
+      overflow: document.documentElement.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+    };
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = "100%";
+    return () => {
+      document.documentElement.style.overflow = previous.overflow;
+      document.body.style.position = previous.position;
+      document.body.style.top = previous.top;
+      document.body.style.width = previous.width;
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
   return (
-    <motion.div role="dialog" aria-modal="true" aria-label="Ouverture du booster" className="fixed inset-0 z-[110] overflow-y-auto bg-black/94 px-3 py-[max(1rem,env(safe-area-inset-top))] backdrop-blur-xl sm:px-6 sm:py-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+    <motion.div role="dialog" aria-modal="true" aria-label="Ouverture du booster" className="fixed inset-0 z-[110] overflow-hidden overscroll-none bg-black/94 backdrop-blur-xl" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_center,rgba(139,92,246,0.23),transparent_36%),radial-gradient(circle_at_18%_20%,rgba(34,211,238,0.15),transparent_30%),radial-gradient(circle_at_80%_80%,rgba(251,191,36,0.13),transparent_28%)]" />
       {particles.map((particle, index) => (
         <motion.span key={index} className="pointer-events-none fixed h-1 w-1 rounded-full bg-white/80" initial={{ x: `${particle.x}vw`, y: "105vh", opacity: 0, scale: 0 }} animate={{ y: ["105vh", "-10vh"], opacity: [0, 0.75, 0], scale: [0, 1.2, 0] }} transition={{ duration: particle.t, delay: particle.d, repeat: Infinity }} />
       ))}
-      <div className="relative z-10 mx-auto flex min-h-full max-w-6xl flex-col items-center justify-center">
+      <div className="relative z-10 mx-auto flex h-full max-w-6xl flex-col items-center justify-center overflow-y-auto overscroll-contain px-3 py-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:py-8">
         {isOpening ? (
           <BoosterOpeningAnimation booster={booster} onOpenComplete={() => setIsOpening(false)} />
         ) : (
