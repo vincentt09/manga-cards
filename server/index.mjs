@@ -954,8 +954,25 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     if (name === "PlayerProfile" && user.role !== "admin") return json(res, 403, { message: "Le profil joueur est créé automatiquement avec le compte." });
     if (adminManagedEntities.has(name) && user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
     let input = await body(req);
-    if (["AnimeCollection", "CardDefinition"].includes(name) && input.anime) input.anime = canonicalAnimeName(input.anime);
     if (!Array.isArray(input)) return json(res, 400, { message: "Liste invalide." });
+    if (input.length > 100) return json(res, 400, { message: "Maximum 100 éléments par création groupée." });
+    if (["AnimeCollection", "CardDefinition"].includes(name)) input = input.map(item => ({ ...item, anime: item.anime ? canonicalAnimeName(item.anime) : item.anime }));
+    if (name === "CardDefinition") {
+      const allowedRarities = new Set(["normale", "legendaire", "secrète", "manga_god"]);
+      const knownKeys = new Set(rows.map(row => `${row.collection_id || ""}:${String(row.anime || "").toLocaleLowerCase("fr")}:${String(row.name || "").toLocaleLowerCase("fr")}:${row.rarity}:${Boolean(row.is_collector)}`));
+      const uniqueInput = [];
+      for (const item of input) {
+        item.name = String(item.name || "").replace(/\s+/g, " ").trim().slice(0, 80);
+        item.anime = String(item.anime || "").replace(/\s+/g, " ").trim().slice(0, 80);
+        if (!item.name || !item.anime || !allowedRarities.has(item.rarity)) return json(res, 400, { message: "Nom, série ou rareté de carte invalide." });
+        const key = `${item.collection_id || ""}:${item.anime.toLocaleLowerCase("fr")}:${item.name.toLocaleLowerCase("fr")}:${item.rarity}:${Boolean(item.is_collector)}`;
+        if (knownKeys.has(key)) continue;
+        knownKeys.add(key);
+        uniqueInput.push(item);
+      }
+      input = uniqueInput;
+      if (!input.length) return json(res, 409, { message: "Toutes les versions sélectionnées existent déjà." });
+    }
     if (name === "Quest" && user.role !== "admin") {
       const now = Date.now();
       const requestedTypes = new Set(input.map((item) => item.type));

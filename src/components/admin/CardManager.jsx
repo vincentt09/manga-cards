@@ -49,24 +49,32 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
     const anime = collection?.anime || String(form.get("anime") || "").trim();
     const name = String(form.get("name") || "").trim();
     const isCollector = form.get("is_collector") === "on";
+    const selectedVersions = [...new Set(form.getAll("versions").map(String))].filter(version => VERSION_TYPES.some(item => item.value === version));
     if (!name || !anime) return toast({ title: "Informations manquantes", description: "Indique un personnage et une série.", variant: "destructive" });
-    const alreadyExists = cardDefinitions.some(card => card.name.toLowerCase() === name.toLowerCase() && card.anime === anime && Boolean(card.is_collector) === isCollector);
-    if (alreadyExists) return toast({ title: "Personnage déjà présent", description: `${name} possède déjà ses versions dans ${anime}.`, variant: "destructive" });
+    if (!selectedVersions.length) return toast({ title: "Aucune version choisie", description: "Sélectionne au moins une version de la carte.", variant: "destructive" });
     const templates = {
       normale: { power: 45, attack: 42, defense: 40, speed: 44 },
       legendaire: { power: 92, attack: 90, defense: 84, speed: 90 },
       "secrète": { power: 108, attack: 106, defense: 97, speed: 105 },
       manga_god: { power: 121, attack: 118, defense: 105, speed: 115 },
     };
-    await appClient.entities.CardDefinition.bulkCreate(Object.entries(templates).map(([rarity, stats]) => ({
+    const existingVersions = new Set(cardDefinitions
+      .filter(card => card.name.toLocaleLowerCase("fr") === name.toLocaleLowerCase("fr") && card.anime === anime && (card.collection_id || null) === collectionId && Boolean(card.is_collector) === isCollector)
+      .map(card => card.rarity));
+    const versionsToCreate = selectedVersions.filter(version => !existingVersions.has(version));
+    if (!versionsToCreate.length) return toast({ title: "Versions déjà présentes", description: `${name} possède déjà toutes les versions sélectionnées dans ${collection?.name || anime}.`, variant: "destructive" });
+    await appClient.entities.CardDefinition.bulkCreate(versionsToCreate.map(rarity => {
+      const stats = templates[rarity];
+      return ({
       name, anime, rarity, collection_id: collectionId, edition: isCollector ? "collector" : "standard",
       edition_label: isCollector ? String(form.get("edition_label") || "Édition Collector") : "Standard",
       is_collector: isCollector, is_active: true, image_url: null,
       basePower: stats.power, baseAttack: stats.attack, baseDefense: stats.defense, baseSpeed: stats.speed,
-    })));
+      });
+    }));
     await queryClient.invalidateQueries({ queryKey: ["card_definitions"] });
     setShowAddCharacter(false);
-    toast({ title: "4 versions créées", description: `${name} a été ajouté à ${collection?.name || anime}.` });
+    toast({ title: `${versionsToCreate.length} version${versionsToCreate.length > 1 ? "s" : ""} créée${versionsToCreate.length > 1 ? "s" : ""}`, description: `${name} a été ajouté à ${collection?.name || anime}.` });
   };
 
   const handleUpload = async (card, file) => {
@@ -295,12 +303,23 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
             <label className="text-xs font-semibold mb-1.5 block">Nom de l’édition</label>
             <Input name="edition_label" placeholder="Ex. Festival 2026" />
           </div>
+          <fieldset className="md:col-span-2 rounded-xl border border-border/70 bg-background/50 p-3">
+            <legend className="px-1 text-xs font-semibold">Versions à créer — choisis-en de 1 à 4</legend>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {VERSION_TYPES.map(version => (
+                <label key={version.value} className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-xs font-semibold transition-colors hover:bg-secondary/50 ${version.borderColor}`}>
+                  <input type="checkbox" name="versions" value={version.value} defaultChecked className="h-4 w-4 accent-primary" />
+                  <span className={version.textColor}>{version.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <label className="flex items-center gap-2 text-sm md:col-span-2">
             <input type="checkbox" name="is_collector" className="w-4 h-4" />
             Créer quatre versions Collector réservées au booster spécial sélectionné
           </label>
           <div className="md:col-span-2">
-            <Button type="submit" className="gap-2"><Save className="w-4 h-4" />Créer les 4 versions</Button>
+            <Button type="submit" className="gap-2"><Save className="w-4 h-4" />Créer les versions sélectionnées</Button>
           </div>
         </form>
       )}
