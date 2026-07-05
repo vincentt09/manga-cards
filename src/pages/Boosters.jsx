@@ -27,15 +27,6 @@ function BoosterCard({ booster, onOpen, onPreview, canAfford, isOpening, isLocke
       whileTap={!isLocked && !isUnavailable ? { scale: 0.97 } : {}}
       className={`relative rounded-2xl overflow-hidden border-2 ${booster.accentColor} ${booster.bgCard} ${isLocked || isUnavailable ? "opacity-70" : "cursor-pointer group"}`}
     >
-      {/* Preview button */}
-      {!isLocked && !isUnavailable && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onPreview(booster); }}
-          className="absolute top-2 right-12 z-10 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-black/80 transition-colors border border-white/10"
-        >
-          <Eye className="w-3.5 h-3.5 text-white" />
-        </button>
-      )}
       {/* Lock overlay */}
       {isUnavailable ? (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 backdrop-blur-[2px] gap-2 text-center px-5">

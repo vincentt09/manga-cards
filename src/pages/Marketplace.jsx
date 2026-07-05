@@ -173,22 +173,37 @@ export default function Marketplace() {
 
   const handleSellCard = async (card, price) => {
     setIsListing(true);
-    await appClient.functions.invoke("createMarketListing", { kind: "card", item_id: card.id, price });
-    queryClient.invalidateQueries({ queryKey: ["card-listings"] });
-    queryClient.invalidateQueries({ queryKey: ["cards"] });
-    setIsListing(false);
-    setShowSellModal(false);
-    logTransaction({ type: "sell", description: `Vente : ${card.name}`, amount: price, card_name: card.name, card_rarity: card.rarity });
-    toast({ title: `🏷️ ${card.name} en vente !`, description: `Prix : ${price.toLocaleString()} pièces` });
+    try {
+      await appClient.functions.invoke("createMarketListing", { kind: "card", item_id: card.id, price });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["card-listings"] }),
+        queryClient.invalidateQueries({ queryKey: ["cards"] }),
+      ]);
+      setShowSellModal(false);
+      logTransaction({ type: "sell", description: `Vente : ${card.name}`, amount: price, card_name: card.name, card_rarity: card.rarity });
+      toast({ title: `🏷️ ${card.name} en vente !`, description: `Prix : ${price.toLocaleString()} pièces` });
+    } catch (error) {
+      toast({ title: "Mise en vente impossible", description: error.message, variant: "destructive" });
+    } finally {
+      setIsListing(false);
+    }
   };
 
   const handleSellFrame = async (playerFrame, frameDef, price) => {
     setIsListing(true);
-    await appClient.functions.invoke("createMarketListing", { kind: "frame", item_id: playerFrame.id, price });
-    queryClient.invalidateQueries({ queryKey: ["frame-listings"] });
-    setIsListing(false);
-    setShowSellModal(false);
-    toast({ title: `🏷️ ${frameDef.name} en vente !`, description: `Prix : ${price.toLocaleString()} pièces` });
+    try {
+      await appClient.functions.invoke("createMarketListing", { kind: "frame", item_id: playerFrame.id, price });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["frame-listings"] }),
+        queryClient.invalidateQueries({ queryKey: ["myFrames"] }),
+      ]);
+      setShowSellModal(false);
+      toast({ title: `🏷️ ${frameDef.name} en vente !`, description: `Prix : ${price.toLocaleString()} pièces` });
+    } catch (error) {
+      toast({ title: "Mise en vente impossible", description: error.message, variant: "destructive" });
+    } finally {
+      setIsListing(false);
+    }
   };
 
   return (
