@@ -98,13 +98,83 @@
     padding-bottom: env(safe-area-inset-bottom);
     -webkit-tap-highlight-color: transparent;
     text-rendering: optimizeLegibility;
-    background-image: radial-gradient(circle at 15% -10%, hsl(var(--primary) / .12), transparent 30rem), radial-gradient(circle at 100% 15%, hsl(var(--accent) / .07), transparent 26rem);
+    background-image:
+      radial-gradient(circle at 15% -10%, hsl(var(--primary) / .2), transparent 32rem),
+      radial-gradient(circle at 100% 15%, hsl(var(--accent) / .12), transparent 28rem),
+      radial-gradient(circle at 50% 110%, hsl(330 80% 55% / .08), transparent 34rem),
+      linear-gradient(145deg, hsl(252 26% 5%), hsl(248 22% 7%) 52%, hsl(258 28% 5%));
     background-attachment: fixed;
   }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    opacity: .2;
+    background-image:
+      linear-gradient(hsl(var(--primary) / .08) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--accent) / .06) 1px, transparent 1px);
+    background-size: 56px 56px;
+    -webkit-mask-image: radial-gradient(ellipse at center, black 15%, transparent 78%);
+    mask-image: radial-gradient(ellipse at center, black 15%, transparent 78%);
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(90deg, hsl(250 40% 2% / .35), transparent 15%, transparent 85%, hsl(250 40% 2% / .35));
+  }
+  #root { isolation: isolate; min-height: 100dvh; }
   ::selection { background: hsl(var(--primary) / .35); color: white; }
   :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
   img { -webkit-user-drag: none; }
+  h1 { font-family: var(--font-display); letter-spacing: .035em; text-shadow: 0 0 28px hsl(var(--primary) / .18); }
+  input, textarea, select { box-shadow: inset 0 1px 0 hsl(0 0% 100% / .025), 0 8px 24px hsl(250 50% 2% / .1); }
 }
+
+@layer components {
+  .game-panel {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid hsl(var(--primary) / .2);
+    background: linear-gradient(145deg, hsl(var(--card) / .94), hsl(var(--background) / .88));
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / .05), 0 18px 55px hsl(250 50% 2% / .32);
+    backdrop-filter: blur(18px);
+  }
+  .game-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 8%;
+    width: 42%;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, hsl(var(--accent) / .75), transparent);
+  }
+  .game-chip {
+    border: 1px solid hsl(var(--primary) / .25);
+    background: linear-gradient(135deg, hsl(var(--primary) / .14), hsl(var(--secondary) / .7));
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / .06);
+  }
+  .game-title {
+    font-family: var(--font-display);
+    letter-spacing: .055em;
+    text-shadow: 0 0 24px hsl(var(--primary) / .28);
+  }
+  .game-nav-glass {
+    background: linear-gradient(180deg, hsl(var(--card) / .96), hsl(var(--background) / .88));
+    box-shadow: 0 12px 45px hsl(250 60% 2% / .48), inset 0 -1px 0 hsl(var(--primary) / .12);
+  }
+}
+
+@keyframes ambient-pulse {
+  0%, 100% { opacity: .45; transform: scale(1); }
+  50% { opacity: .8; transform: scale(1.08); }
+}
+
+.ambient-pulse { animation: ambient-pulse 5s ease-in-out infinite; }
 
 @media (min-width: 768px) {
   * { scrollbar-width: thin; scrollbar-color: hsl(var(--primary) / .45) transparent; }

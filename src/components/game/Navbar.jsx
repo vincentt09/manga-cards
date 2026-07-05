@@ -43,14 +43,17 @@ export default function Navbar() {
     <>
       {/* Top Bar */}
       <nav
-        className="fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border shadow-lg"
+        className="game-nav-glass fixed left-0 right-0 top-0 z-50 border-b border-primary/20 backdrop-blur-2xl"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="max-w-5xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
-            <Link to="/" className="flex items-center gap-2">
-              <Swords className="w-5 h-5 text-primary" />
-              <span className="font-display text-base font-bold tracking-wider bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            <Link to="/" className="group flex items-center gap-2.5">
+              <span className="relative grid h-9 w-9 place-items-center rounded-xl border border-primary/35 bg-gradient-to-br from-primary/25 to-accent/10 shadow-[0_0_24px_hsl(var(--primary)/.2)] transition-transform group-hover:rotate-3 group-hover:scale-105">
+                <Swords className="h-5 w-5 text-primary" />
+                <span className="ambient-pulse absolute -right-1 -top-1 h-2 w-2 rounded-full bg-accent shadow-[0_0_10px_hsl(var(--accent))]" />
+              </span>
+              <span className="game-title bg-gradient-to-r from-white via-primary to-accent bg-clip-text text-base font-black text-transparent">
                 MANGA TCG
               </span>
             </Link>
@@ -63,10 +66,10 @@ export default function Navbar() {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${
+                    className={`relative flex items-center gap-2 rounded-xl border px-3 py-2 transition-all ${
                       isActive
-                        ? "bg-primary/10 text-primary font-semibold"
-                        : "text-muted-foreground hover:bg-secondary/30 hover:text-foreground"
+                        ? "border-primary/30 bg-primary/15 text-primary shadow-[inset_0_1px_0_hsl(var(--primary)/.12)] font-semibold"
+                        : "border-transparent text-muted-foreground hover:border-white/5 hover:bg-secondary/40 hover:text-foreground"
                     }`}
                   >
                     <item.icon className="w-4 h-4" />
@@ -108,12 +111,12 @@ export default function Navbar() {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 h-full w-[min(20rem,100vw)] bg-card border-l border-border z-[70] shadow-2xl overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+              className="game-nav-glass fixed right-0 top-0 z-[70] h-full w-[min(21rem,100vw)] overflow-y-auto border-l border-primary/20 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-2xl"
             >
               <div className="p-6">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8">
-                  <h2 className="font-display text-lg font-bold">Menu</h2>
+                  <div><p className="text-[9px] font-bold uppercase tracking-[.28em] text-accent">Quartier général</p><h2 className="game-title mt-1 text-lg font-black">Menu du joueur</h2></div>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -125,8 +128,8 @@ export default function Navbar() {
                 </div>
 
                 {/* User Info */}
-                <div className="mb-6 p-4 bg-secondary/30 rounded-xl border border-border">
-                  <p className="text-sm font-medium text-foreground">{user?.full_name || "Joueur"}</p>
+                <div className="game-panel mb-6 rounded-2xl p-4">
+                  <p className="game-title text-sm font-bold text-foreground">{user?.full_name || "Joueur"}</p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
                   <p className="text-xs text-primary mt-1 font-semibold capitalize">{user?.role}</p>
                 </div>
@@ -140,10 +143,10 @@ export default function Navbar() {
                         key={item.path}
                         to={item.path}
                         onClick={() => setIsOpen(false)}
-                        className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+                        className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-all ${
                           isActive
-                            ? "bg-primary/10 text-primary font-semibold border border-primary/20"
-                            : "text-muted-foreground hover:bg-secondary/30 hover:text-foreground"
+                            ? "border-primary/30 bg-gradient-to-r from-primary/20 to-accent/5 text-primary font-semibold shadow-[inset_3px_0_0_hsl(var(--primary))]"
+                            : "border-transparent text-muted-foreground hover:border-white/5 hover:bg-secondary/35 hover:text-foreground"
                         }`}
                       >
                         <item.icon className="w-5 h-5" />
@@ -198,8 +201,8 @@ export default function Navbar() {
           aria-expanded={isChatOpen}
           className={`relative flex items-center gap-2.5 rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-xl transition-colors ${
             isChatOpen
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-primary/30 bg-card/95 text-foreground hover:border-primary/60 hover:bg-secondary"
+              ? "border-primary bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-[0_0_35px_hsl(var(--primary)/.38)]"
+              : "border-primary/30 bg-card/90 text-foreground hover:border-primary/60 hover:bg-secondary shadow-[inset_0_1px_0_rgba(255,255,255,.08)]"
           }`}
         >
           <span className="relative">

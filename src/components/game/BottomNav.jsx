@@ -18,7 +18,7 @@ export default function BottomNav() {
   return (
     <nav
       aria-label="Navigation principale mobile"
-      className="fixed bottom-0 left-0 right-0 z-[55] border-t border-white/10 bg-card/90 shadow-[0_-12px_40px_rgba(0,0,0,0.45)] backdrop-blur-2xl md:hidden"
+      className="game-nav-glass fixed bottom-0 left-0 right-0 z-[55] border-t border-primary/20 backdrop-blur-2xl md:hidden"
       style={{ paddingBottom: "max(0.45rem, env(safe-area-inset-bottom))" }}
     >
       <div className="mx-auto flex max-w-lg items-center justify-around px-1 pt-1.5">
@@ -33,13 +33,13 @@ export default function BottomNav() {
             >
               <motion.div
                 className={cn(
-                  "relative rounded-xl p-1.5 transition-colors",
-                  isActive ? "bg-primary/20 text-primary" : "text-muted-foreground",
+                  "relative rounded-xl border p-1.5 transition-all",
+                  isActive ? "-translate-y-1 border-primary/35 bg-gradient-to-br from-primary/25 to-accent/10 text-primary shadow-[0_8px_20px_hsl(var(--primary)/.24)]" : "border-transparent text-muted-foreground",
                 )}
                 whileTap={{ scale: 0.9 }}
               >
                 <item.icon className="h-[19px] w-[19px]" />
-                {isActive && <span className="absolute -bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-primary" />}
+                {isActive && <span className="absolute -bottom-1 left-1/2 h-1 w-4 -translate-x-1/2 rounded-full bg-gradient-to-r from-primary to-accent shadow-[0_0_8px_hsl(var(--primary))]" />}
               </motion.div>
               <span className={cn(
                 "max-w-full truncate text-[9px] font-semibold",

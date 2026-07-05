@@ -22,7 +22,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 
 function StatCard({ icon: Icon, label, value, color }) {
   return (
-    <div className="rounded-xl border border-border bg-secondary/30 p-4">
+    <div className="game-panel rounded-xl p-4 transition-transform duration-200 hover:-translate-y-1">
       <div className="flex items-center gap-2 mb-2">
         <Icon className={`w-4 h-4 ${color}`} />
         <span className="text-xs text-muted-foreground">{label}</span>
@@ -115,7 +115,7 @@ export default function Profile() {
       <div className="mx-auto max-w-4xl space-y-6 px-3 py-5 sm:px-4 sm:py-6">
         {/* Profile Header */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className={`overflow-hidden rounded-2xl border bg-gradient-to-b ${profileTheme.card} ${profile?.profile_effect === "pulse" ? "animate-pulse" : ""}`}
+          className={`game-panel overflow-hidden rounded-2xl bg-gradient-to-b ${profileTheme.card} ${profile?.profile_effect === "pulse" ? "animate-pulse" : ""}`}
           style={{ borderColor: `${profile?.accent_color || "#8b5cf6"}66`, boxShadow: profile?.profile_effect === "glow" ? `0 0 35px ${profile?.accent_color || "#8b5cf6"}44` : undefined }}>
           <div className={`h-28 bg-gradient-to-r ${bannerGradient} relative`}>
             {profile?.banner_url && <img src={profile.banner_url} alt="Bannière du profil" className="absolute inset-0 h-full w-full object-cover" />}
@@ -156,7 +156,7 @@ export default function Profile() {
             {showcaseCards.length > 0 && <div className="mt-5 border-t border-white/10 pt-4"><p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Vitrine de collection</p><div className="grid max-w-md grid-cols-3 gap-3">{showcaseCards.map(card => <div key={card.id} className="overflow-hidden rounded-xl border border-white/10 bg-black/20"><img src={card.image_url} alt={card.name} className="aspect-[2/3] w-full object-cover object-top" /><p className="truncate p-1.5 text-center text-[9px] font-bold">{card.name}</p></div>)}</div></div>}
 
             {/* XP Bar */}
-            <div className="mt-4 p-3 rounded-xl bg-secondary/50 border border-border">
+            <div className="game-chip mt-4 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
@@ -193,7 +193,7 @@ export default function Profile() {
 
         {/* Currencies */}
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card p-3 sm:gap-3 sm:p-4">
+          <div className="game-panel flex min-w-0 items-center gap-2 rounded-2xl p-3 sm:gap-3 sm:p-4">
             <div className="w-12 h-12 rounded-xl bg-yellow-500/10 flex items-center justify-center">
               <Coins className="w-6 h-6 text-yellow-400" />
             </div>
@@ -202,7 +202,7 @@ export default function Profile() {
               <p className="text-xs text-muted-foreground">Pièces</p>
             </div>
           </div>
-          <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card p-3 sm:gap-3 sm:p-4">
+          <div className="game-panel flex min-w-0 items-center gap-2 rounded-2xl p-3 sm:gap-3 sm:p-4">
             <div className="w-12 h-12 rounded-xl bg-cyan-500/10 flex items-center justify-center">
               <Gem className="w-6 h-6 text-cyan-400" />
             </div>
@@ -223,7 +223,7 @@ export default function Profile() {
         </div>
 
         {/* Level Rewards */}
-        <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="game-panel rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-heading font-bold text-sm uppercase tracking-wider text-muted-foreground flex items-center gap-2">
               <Gift className="w-4 h-4" />Récompenses de Niveaux
@@ -238,7 +238,7 @@ export default function Profile() {
         </div>
 
         {/* Rarity Breakdown */}
-        <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="game-panel rounded-2xl p-5">
           <h2 className="font-heading font-bold text-sm mb-4 uppercase tracking-wider text-muted-foreground">Répartition par rareté</h2>
           <div className="space-y-3">
             {Object.entries(RARITY_CONFIG).reverse().map(([key, config]) => (
@@ -259,7 +259,7 @@ export default function Profile() {
         </div>
 
         {/* Achievements */}
-        <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="game-panel rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-heading font-bold text-sm uppercase tracking-wider text-muted-foreground flex items-center gap-2">
               <Trophy className="w-4 h-4" />Succès
@@ -310,14 +310,14 @@ export default function Profile() {
 
         {/* Quick links */}
         <div className="grid grid-cols-2 gap-3">
-          <Link to="/encyclopedia" className="flex items-center gap-3 p-4 rounded-2xl border border-border bg-card hover:bg-secondary/50 transition-colors">
+          <Link to="/encyclopedia" className="game-panel flex items-center gap-3 rounded-2xl p-4 transition-all hover:-translate-y-1 hover:border-primary/40">
             <BookOpen className="w-5 h-5 text-accent" />
             <div>
               <p className="font-semibold text-sm">Encyclopédie</p>
               <p className="text-[10px] text-muted-foreground">Toutes les cartes</p>
             </div>
           </Link>
-          <Link to="/history" className="flex items-center gap-3 p-4 rounded-2xl border border-border bg-card hover:bg-secondary/50 transition-colors">
+          <Link to="/history" className="game-panel flex items-center gap-3 rounded-2xl p-4 transition-all hover:-translate-y-1 hover:border-primary/40">
             <History className="w-5 h-5 text-primary" />
             <div>
               <p className="font-semibold text-sm">Historique</p>
