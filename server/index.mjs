@@ -447,8 +447,22 @@ const readDb = async () => {
     console.log(`${repairedProfiles.length} profil(s) joueur en double fusionné(s).`);
   }
   db.entities.CardDefinition ||= [];
+  db.entities.DeletedCardDefinition ||= [];
+  const deletedDefinitionIds = new Set([
+    ...db.entities.DeletedCardDefinition.map((item) => item.card_definition_id),
+    ...(db.entities.AdminAudit || [])
+      .filter((item) => item.action === "card_definitions_deleted")
+      .flatMap((item) => item.details?.definition_ids || []),
+  ].filter(Boolean));
+  // Convertit aussi les anciennes suppressions (enregistrées dans l'audit)
+  // en exclusions persistantes afin qu'un redémarrage ne ressuscite rien.
+  for (const cardDefinitionId of deletedDefinitionIds) {
+    if (!db.entities.DeletedCardDefinition.some((item) => item.card_definition_id === cardDefinitionId)) {
+      db.entities.DeletedCardDefinition.push({ id: `deleted:${cardDefinitionId}`, card_definition_id: cardDefinitionId, created_date: new Date().toISOString() });
+    }
+  }
   const definitionIds = new Set(db.entities.CardDefinition.map((card) => card.id));
-  const missingDefinitions = baseCardCatalog.filter((card) => !definitionIds.has(card.id));
+  const missingDefinitions = baseCardCatalog.filter((card) => !definitionIds.has(card.id) && !deletedDefinitionIds.has(card.id));
   if (missingDefinitions.length) {
     db.entities.CardDefinition.push(...missingDefinitions);
     await remote.collection(entityCollectionName("CardDefinition")).insertMany(missingDefinitions);
@@ -951,8 +965,8 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
     return json(res, 403, { message: "Operation interdite sur les utilisateurs." });
   }
   db.entities[name] ||= []; const rows = db.entities[name];
-  const privateEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerGift", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "DirectMessage", "UserCosmetic", "ProfileCustomization"]);
-  const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats", "TitleDefinition"]);
+  const privateEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerGift", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "DirectMessage", "UserCosmetic", "ProfileCustomization", "DeletedCardDefinition"]);
+  const adminManagedEntities = new Set(["AnimeCollection", "CardDefinition", "CardFrame", "CosmeticItem", "CardImageOverride", "DropEvent", "EconomyStats", "TitleDefinition", "DeletedCardDefinition"]);
   const collaborativeEntities = new Set();
   const canAccess = (row) => user.role === "admin" || !privateEntities.has(name) || row.created_by_id === user.id;
   const canWrite = (row) => user.role === "admin" || collaborativeEntities.has(name) || row.created_by_id === user.id;
@@ -1433,6 +1447,16 @@ async function runFunction(req, res, name, db, user) {
     const removedListings = (entities.LimitedCardListing || []).filter((listing) => definitionIdSet.has(listing.card_definition_id)).length;
     entities.LimitedCardListing = (entities.LimitedCardListing || []).filter((listing) => !definitionIdSet.has(listing.card_definition_id));
     entities.CardDefinition = (entities.CardDefinition || []).filter((definition) => !definitionIdSet.has(definition.id));
+    entities.DeletedCardDefinition ||= [];
+    const deletedAt = new Date().toISOString();
+    for (const definition of definitions) {
+      const existingDeletion = entities.DeletedCardDefinition.find((item) => item.card_definition_id === definition.id);
+      if (existingDeletion) Object.assign(existingDeletion, { card_name: definition.name, anime: definition.anime, deleted_at: deletedAt, deleted_by_id: user.id });
+      else entities.DeletedCardDefinition.push({
+        id: `deleted:${definition.id}`, card_definition_id: definition.id, card_name: definition.name,
+        anime: definition.anime, deleted_at: deletedAt, deleted_by_id: user.id, created_date: deletedAt,
+      });
+    }
     recordAdminAudit(db, user, "card_definitions_deleted", null, {
       removed_total: definitions.length,
       definition_ids: definitions.map((definition) => definition.id),
