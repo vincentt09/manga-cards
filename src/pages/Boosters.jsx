@@ -302,6 +302,7 @@ export default function Boosters() {
 
     setIsOpening(true);
     setOpeningBoosterId(booster.id);
+    setCurrentBooster(booster);
 
     // Le tirage et les mises a jour sont atomiques cote serveur : le navigateur
     // ne peut plus modifier les taux, le solde ou les cartes obtenues.
@@ -391,6 +392,19 @@ export default function Boosters() {
       <CurrencyBar profile={profile} cards={existingCards} />
 
       <div className="max-w-5xl mx-auto px-4 py-4">
+        <AnimatePresence>
+          {isOpening && !revealCards && (
+            <motion.div role="status" aria-live="polite" className="fixed inset-0 z-[109] grid place-items-center overflow-hidden bg-black/94 px-4 backdrop-blur-lg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="text-center">
+                <motion.div animate={{ scale: [1, 1.06, 1], rotate: [-1, 1, -1] }} transition={{ duration: 0.55, repeat: Infinity }} className={`mx-auto grid h-40 w-28 place-items-center rounded-2xl border-2 border-white/25 bg-gradient-to-br ${currentBooster?.color || "from-primary to-accent"} shadow-2xl shadow-primary/30`}>
+                  <Package className="h-14 w-14 text-white drop-shadow-[0_0_14px_rgba(255,255,255,.7)]" />
+                </motion.div>
+                <p className="mt-5 font-heading text-sm font-bold text-white">Ouverture en cours…</p>
+                <p className="mt-1 text-xs text-white/50">Tirage sécurisé et sauvegarde</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {/* Modal d'aperçu */}
         <AnimatePresence>
           {previewBooster && (

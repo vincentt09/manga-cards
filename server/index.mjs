@@ -368,6 +368,16 @@ const syncMongoCollection = async (collection, rows, key = "id") => {
   }
   await collection.deleteMany(ids.length ? { [key]: { $nin: ids } } : {});
 };
+const syncMongoPlayerRows = async (collection, rows, userId, key = "id") => {
+  const ownedRows = (rows || []).filter((row) => row.created_by_id === userId);
+  if (ownedRows.length) {
+    await collection.bulkWrite(ownedRows.map((row) => ({
+      replaceOne: { filter: { [key]: row[key] }, replacement: row, upsert: true },
+    })), { ordered: false });
+  }
+  const ids = ownedRows.map((row) => row[key]).filter(Boolean);
+  await collection.deleteMany({ created_by_id: userId, ...(ids.length ? { [key]: { $nin: ids } } : {}) });
+};
 const entityCollectionName = (name) => name === "Card" ? "cards" : `entity_${name}`;
 const stackOwnedCards = (cards = []) => {
   const stacked = new Map();
@@ -449,21 +459,27 @@ const readDb = async () => {
   await ensureDailyBackup(dbCache).catch((error) => console.error("Sauvegarde automatique impossible :", error.message));
   return dbCache;
 };
-const writeDb = async (db) => {
+const writeDb = async (db, targeted = null) => {
   dbCache = db;
   fs.mkdirSync(dataDir, { recursive: true });
   const remote = await mongoDb();
   if (remote) {
-    await Promise.all([
-      syncMongoCollection(remote.collection("users"), db.users),
-      syncMongoCollection(remote.collection("auth_sessions"), db.sessions, "token"),
-      syncMongoCollection(remote.collection("auth_reset_tokens"), db.resetTokens, "token"),
-      syncMongoCollection(remote.collection("auth_oauth_states"), db.oauthStates, "state"),
-      ...Object.entries(db.entities).map(([name, rows]) => syncMongoCollection(remote.collection(entityCollectionName(name)), rows || [])),
-    ]);
-    const local = structuredClone(db);
-    local.users = [];
-    local.entities = {};
+    if (targeted?.userId && targeted?.entities?.length) {
+      await Promise.all(targeted.entities.map((name) => syncMongoPlayerRows(
+        remote.collection(entityCollectionName(name)), db.entities[name] || [], targeted.userId,
+      )));
+    } else {
+      await Promise.all([
+        syncMongoCollection(remote.collection("users"), db.users),
+        syncMongoCollection(remote.collection("auth_sessions"), db.sessions, "token"),
+        syncMongoCollection(remote.collection("auth_reset_tokens"), db.resetTokens, "token"),
+        syncMongoCollection(remote.collection("auth_oauth_states"), db.oauthStates, "state"),
+        ...Object.entries(db.entities).map(([name, rows]) => syncMongoCollection(remote.collection(entityCollectionName(name)), rows || [])),
+      ]);
+    }
+    // MongoDB est la source de vérité : inutile de cloner toute la base en
+    // mémoire à chaque action uniquement pour écrire le petit cache local.
+    const local = { ...db, users: [], entities: {} };
     fs.writeFileSync(dbFile, JSON.stringify(local, null, 2));
     return;
   }
@@ -2458,7 +2474,10 @@ async function runFunction(req, res, name, db, user) {
   } else {
     return json(res, 501, { message: `La fonction ${name} doit encore être adaptée.` });
   }
-  await writeDb(db);
+  await writeDb(db, name === "openBooster" ? {
+    userId: user.id,
+    entities: ["PlayerProfile", "Card", "Quest", "Transaction", "PlayerFrame"],
+  } : null);
   return json(res, 200, { data: result });
 }
 
