@@ -2,8 +2,18 @@ import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowUp, Crown, Package, Shield, Sparkles, Star, Wind, Zap } from "lucide-react";
 import { RARITY_CONFIG } from "@/lib/gameData";
+import Booster3DScene from "@/components/game/Booster3DScene";
 
 const highRarities = new Set(["legendaire", "secrète", "manga_god"]);
+const getBoosterColor = (booster) => {
+  const value = `${booster?.color || ""} ${booster?.accentColor || ""}`;
+  if (/rose|pink/i.test(value)) return "#ec4899";
+  if (/red|orange/i.test(value)) return "#f97316";
+  if (/cyan|blue/i.test(value)) return "#06b6d4";
+  if (/green|emerald/i.test(value)) return "#10b981";
+  if (/yellow|amber/i.test(value)) return "#f59e0b";
+  return "#8b5cf6";
+};
 
 const particleColors = {
   normale: ["#94a3b8", "#cbd5e1"],
@@ -123,6 +133,7 @@ function BoosterOpeningAnimation({ booster, onOpenComplete }) {
         style={{ willChange: "transform, opacity" }}
       >
         <div className={`absolute inset-0 bg-gradient-to-br ${booster?.color || "from-primary to-accent"}`} />
+        <Booster3DScene stage={stage} color={getBoosterColor(booster)} icon={booster?.icon || "✦"} />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,255,255,0.34),transparent_28%),linear-gradient(to_top,rgba(0,0,0,0.75),transparent_55%)]" />
         <motion.div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent" animate={{ x: ["-140%", "140%"] }} transition={{ duration: 0.7, repeat: Infinity, repeatDelay: 0.15 }} />
         {stage === "crack" && (
@@ -132,7 +143,7 @@ function BoosterOpeningAnimation({ booster, onOpenComplete }) {
             <motion.div className="absolute right-[34%] top-[44%] h-28 w-1 rotate-[42deg] bg-white/70 shadow-[0_0_20px_white]" initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} />
           </div>
         )}
-        <div className="relative z-10 flex flex-col items-center gap-4 px-6">
+        <div className="relative z-20 flex flex-col items-center gap-4 px-6 opacity-25">
           <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: stage === "charge" ? 1.2 : 4, repeat: Infinity, ease: "linear" }} className="grid h-24 w-24 place-items-center rounded-full border border-white/35 bg-black/25 backdrop-blur">
             <Package className="h-14 w-14 text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.85)]" />
           </motion.div>
