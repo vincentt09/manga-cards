@@ -68,17 +68,25 @@ function FloatingParticles({ rarity, active = true }) {
 function BoosterOpeningAnimation({ booster, onOpenComplete }) {
   const [stage, setStage] = useState("sealed");
   const reduceMotion = useReducedMotion();
+  const stageInfo = {
+    sealed: { label: "Sceau détecté", progress: 12 },
+    shake: { label: "Éveil du booster", progress: 30 },
+    charge: { label: "Énergie concentrée", progress: 58 },
+    crack: { label: "Le sceau se brise", progress: 82 },
+    explode: { label: "Invocation !", progress: 100 },
+  }[stage];
 
   useEffect(() => {
     if (reduceMotion) {
-      const timer = window.setTimeout(onOpenComplete, 80);
+      const timer = window.setTimeout(onOpenComplete, 220);
       return () => window.clearTimeout(timer);
     }
     const timers = [
-      window.setTimeout(() => setStage("charge"), 60),
-      window.setTimeout(() => setStage("crack"), 140),
-      window.setTimeout(() => setStage("explode"), 220),
-      window.setTimeout(() => onOpenComplete(), 340),
+      window.setTimeout(() => setStage("shake"), 320),
+      window.setTimeout(() => setStage("charge"), 720),
+      window.setTimeout(() => setStage("crack"), 1280),
+      window.setTimeout(() => setStage("explode"), 1880),
+      window.setTimeout(() => onOpenComplete(), 2200),
     ];
     return () => timers.forEach(window.clearTimeout);
   }, [onOpenComplete, reduceMotion]);
@@ -92,13 +100,13 @@ function BoosterOpeningAnimation({ booster, onOpenComplete }) {
         {stage === "explode" ? "Explosion de rareté !" : booster?.name || "Booster"}
       </motion.h2>
 
-      {[...Array(1)].map((_, index) => (
+      {[...Array(3)].map((_, index) => (
         <motion.div
           key={index}
           className="absolute rounded-full border border-primary/25"
           initial={{ width: 180, height: 180, opacity: 0, scale: 0.2 }}
           animate={{ opacity: [0, 0.9, 0], scale: [0.2, 1.8 + index * 0.35, 2.4 + index * 0.5] }}
-          transition={{ duration: 0.34, delay: index * 0.1 }}
+          transition={{ duration: 1.35, repeat: Infinity, delay: index * 0.32 }}
         />
       ))}
 
@@ -110,7 +118,7 @@ function BoosterOpeningAnimation({ booster, onOpenComplete }) {
           stage === "crack" ? { rotate: [-2, 2, -3, 3, 0], scale: [1.06, 1.18, 1.08] } :
           { scale: [1.1, 1.8, 3.5], opacity: [1, 0.8, 0], rotate: [0, 12, -16] }
         }
-        transition={{ duration: 0.12 }}
+        transition={{ duration: stage === "sealed" ? 1.1 : stage === "explode" ? 0.3 : 0.48, repeat: stage === "sealed" ? Infinity : 0, ease: "easeInOut" }}
         className="relative grid aspect-[3/4] w-60 place-items-center overflow-hidden rounded-[2rem] border-4 border-white/20 shadow-2xl shadow-primary/30 sm:w-72"
         style={{ willChange: "transform, opacity" }}
       >
@@ -125,20 +133,26 @@ function BoosterOpeningAnimation({ booster, onOpenComplete }) {
           </div>
         )}
         <div className="relative z-10 flex flex-col items-center gap-4 px-6">
-          <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: 5, repeat: Infinity, ease: "linear" }} className="grid h-24 w-24 place-items-center rounded-full border border-white/35 bg-black/25 backdrop-blur">
+          <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: stage === "charge" ? 1.2 : 4, repeat: Infinity, ease: "linear" }} className="grid h-24 w-24 place-items-center rounded-full border border-white/35 bg-black/25 backdrop-blur">
             <Package className="h-14 w-14 text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.85)]" />
           </motion.div>
           <span className="font-display text-2xl font-black tracking-wide text-white drop-shadow-lg">{booster?.icon || "📦"}</span>
-          <span className="text-xs font-bold uppercase tracking-[0.25em] text-white/70">{stage === "charge" ? "Concentration..." : stage === "crack" ? "Le sceau se brise" : "Scellé"}</span>
+          <span className="text-xs font-bold uppercase tracking-[0.25em] text-white/70">{stageInfo.label}</span>
         </div>
       </motion.div>
 
       {stage === "explode" && (
         <>
-          <motion.div initial={{ scale: 0, opacity: 1 }} animate={{ scale: 8, opacity: 0 }} transition={{ duration: 0.16 }} className="absolute h-28 w-28 rounded-full bg-white" />
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: [0, 0.8, 0] }} transition={{ duration: 0.14 }} className="fixed inset-0 bg-white" />
+          <motion.div initial={{ scale: 0, opacity: 1 }} animate={{ scale: 8, opacity: 0 }} transition={{ duration: 0.38 }} className="absolute h-28 w-28 rounded-full bg-white" />
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: [0, 0.85, 0] }} transition={{ duration: 0.3 }} className="fixed inset-0 bg-white" />
         </>
       )}
+      <div className="mt-7 w-56 sm:w-64">
+        <div className="mb-2 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.2em] text-white/45"><span>Invocation</span><span>{stageInfo.progress}%</span></div>
+        <div className="h-1.5 overflow-hidden rounded-full border border-white/10 bg-white/10">
+          <motion.div className="h-full rounded-full bg-gradient-to-r from-primary via-cyan-300 to-white shadow-[0_0_12px_rgba(139,92,246,.9)]" animate={{ width: `${stageInfo.progress}%` }} transition={{ duration: 0.38, ease: "easeOut" }} />
+        </div>
+      </div>
     </div>
   );
 }
