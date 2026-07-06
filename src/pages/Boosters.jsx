@@ -322,14 +322,16 @@ export default function Boosters() {
         if (result.frame_drop) {
           toast({ title: "🎁 CADRE D’ÉVÉNEMENT OBTENU !", description: `${result.frame_drop.name} rejoint ta collection.`, duration: 6000 });
         }
-        await Promise.all([
+        setCurrentBooster(booster);
+        setRevealCards(result.cards);
+        // L'animation démarre dès que le tirage est confirmé. Les données de
+        // fond se rafraîchissent ensuite sans retenir le joueur sur le bouton.
+        void Promise.all([
           queryClient.invalidateQueries({ queryKey: ["profile"] }),
           queryClient.invalidateQueries({ queryKey: ["cards"] }),
           queryClient.invalidateQueries({ queryKey: ["quests"] }),
           queryClient.invalidateQueries({ queryKey: ["myFrames"] }),
         ]);
-        setCurrentBooster(booster);
-        setRevealCards(result.cards);
     } catch (error) {
       toast({ title: "Ouverture impossible", description: error.message, variant: "destructive" });
     } finally {
