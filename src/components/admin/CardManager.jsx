@@ -80,7 +80,7 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
   const handleUpload = async (card, file) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) return toast({ title: "Fichier refusé", description: "Choisis une image PNG, JPG, WEBP ou GIF.", variant: "destructive" });
-    if (file.size > 8 * 1024 * 1024) return toast({ title: "Image trop lourde", description: "La taille maximale est de 8 Mo.", variant: "destructive" });
+    if (file.size > 20 * 1024 * 1024) return toast({ title: "Image trop lourde", description: "Choisis une source de moins de 20 Mo. Elle sera optimisée automatiquement.", variant: "destructive" });
     
     setUploadingIds(prev => new Set(prev).add(card.id));
     
@@ -97,11 +97,6 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
             return next;
           });
         }, 2000);
-        toast({ 
-          title: "Succès!", 
-          description: `${card.name} - Image uploadée`,
-          duration: 2000
-        });
       } else {
         throw new Error('Aucune URL retournée');
       }
@@ -524,7 +519,7 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
                           </div>
                         </div>
                       ) : (
-                        <label className="absolute inset-0 flex flex-col items-center justify-center gap-4 cursor-pointer rounded-xl hover:bg-gradient-to-br hover:from-primary/15 hover:to-accent/15 transition-all duration-300">
+                        <label onClick={() => triggerFileInput(card.id)} className="absolute inset-0 flex flex-col items-center justify-center gap-4 cursor-pointer rounded-xl hover:bg-gradient-to-br hover:from-primary/15 hover:to-accent/15 transition-all duration-300">
                           <div className="relative group">
                             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center border-2 border-primary/30 group-hover:scale-110 group-hover:border-primary/50 transition-all duration-300 shadow-lg">
                               <FileImage className="w-10 h-10 text-primary" />
@@ -535,7 +530,8 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
                           </div>
                           <div className="text-center">
                             <p className="text-sm font-bold text-foreground mb-1">Glissez-déposez ou cliquez</p>
-                            <p className="text-[10px] text-muted-foreground">PNG, JPG, WEBP, GIF (max 8 Mo)</p>
+                            <p className="text-[10px] text-muted-foreground">PNG, JPG, WEBP · optimisation automatique</p>
+                            <p className="text-[9px] text-muted-foreground">GIF : maximum 3 Mo</p>
                           </div>
                           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/50 border border-border">
                             <Image className="w-3 h-3 text-muted-foreground" />

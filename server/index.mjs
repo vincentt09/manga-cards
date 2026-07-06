@@ -482,6 +482,10 @@ const writeDb = async (db, targeted = null) => {
       await Promise.all(targeted.entities.map((name) => syncMongoPlayerRows(
         remote.collection(entityCollectionName(name)), db.entities[name] || [], targeted.userId,
       )));
+    } else if (targeted?.entities?.length) {
+      await Promise.all(targeted.entities.map((name) => syncMongoCollection(
+        remote.collection(entityCollectionName(name)), db.entities[name] || [],
+      )));
     } else {
       await Promise.all([
         syncMongoCollection(remote.collection("users"), db.users),
@@ -566,7 +570,7 @@ const resolvedCard = (db, card) => {
     collection_id: card.collection_id || definition?.collection_id || null,
     edition: card.edition || definition?.edition || "standard",
     is_collector: Boolean(card.is_collector || definition?.is_collector),
-    image_url: override?.image_url || definition?.image_url || card.image_url || null,
+    image_url: definition ? (override?.image_url || definition.image_url || null) : (card.image_url || null),
   };
 };
 const rowBelongsToUser = (row, user) => row
@@ -2029,21 +2033,29 @@ async function runFunction(req, res, name, db, user) {
     if (!remote || !(await remote.collection("card_images.files").findOne({ _id: new ObjectId(uploadMatch[1]) }))) return json(res, 404, { message: "Le fichier uploadé est introuvable." });
     entities.CardImageOverride ||= [];
     const existing = entities.CardImageOverride.find((item) => item.card_id === definition.id);
+    const previousUploadId = String(existing?.image_url || definition.image_url || "").match(/^\/api\/uploads\/([a-f0-9]{24})$/i)?.[1];
     const now = new Date().toISOString();
     if (existing) Object.assign(existing, { image_url: imageUrl, card_name: definition.name, updated_date: now });
     else entities.CardImageOverride.push({ id: id(), card_id: definition.id, card_name: definition.name, image_url: imageUrl, created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now });
     entities.CardImageOverride = entities.CardImageOverride.filter((item, index, rows) => item.card_id !== definition.id || rows.findIndex((candidate) => candidate.card_id === definition.id) === index);
     definition.image_url = imageUrl; definition.updated_date = now;
-    for (const owned of (entities.Card || []).filter((item) => item.card_definition_id === definition.id)) { owned.image_url = imageUrl; owned.updated_date = now; }
+    if (previousUploadId && previousUploadId !== uploadMatch[1]) {
+      await new GridFSBucket(remote, { bucketName: "card_images" }).delete(new ObjectId(previousUploadId)).catch(() => {});
+    }
     result = { image_url: imageUrl, card_id: definition.id };
   } else if (name === "clearCardImage") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const definition = (entities.CardDefinition || []).find((item) => item.id === input.card_id);
     if (!definition) return json(res, 404, { message: "Définition de carte introuvable." });
+    const previousUploadId = String((entities.CardImageOverride || []).find((item) => item.card_id === definition.id)?.image_url || definition.image_url || "").match(/^\/api\/uploads\/([a-f0-9]{24})$/i)?.[1];
     entities.CardImageOverride = (entities.CardImageOverride || []).filter((item) => item.card_id !== definition.id);
-    definition.image_url = null; definition.updated_date = new Date().toISOString();
-    for (const owned of (entities.Card || []).filter((item) => item.card_definition_id === definition.id)) { owned.image_url = null; owned.updated_date = new Date().toISOString(); }
-    result = { card_id: definition.id, image_url: null };
+    definition.image_url = baseCardCatalog.find((item) => item.id === definition.id)?.image_url || null;
+    definition.updated_date = new Date().toISOString();
+    if (previousUploadId) {
+      const remote = await mongoDb();
+      if (remote) await new GridFSBucket(remote, { bucketName: "card_images" }).delete(new ObjectId(previousUploadId)).catch(() => {});
+    }
+    result = { card_id: definition.id, image_url: definition.image_url };
   } else if (name === "unlockTalent") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
     const talent = getTalent(input.talent_id);
@@ -2498,10 +2510,12 @@ async function runFunction(req, res, name, db, user) {
   } else {
     return json(res, 501, { message: `La fonction ${name} doit encore être adaptée.` });
   }
-  await writeDb(db, name === "openBooster" ? {
-    userId: user.id,
-    entities: ["PlayerProfile", "Card", "Quest", "Transaction", "PlayerFrame"],
-  } : null);
+  const targetedWrite = name === "openBooster"
+    ? { userId: user.id, entities: ["PlayerProfile", "Card", "Quest", "Transaction", "PlayerFrame"] }
+    : ["setCardImage", "clearCardImage"].includes(name)
+      ? { entities: ["CardDefinition", "CardImageOverride"] }
+      : null;
+  await writeDb(db, targetedWrite);
   return json(res, 200, { data: result });
 }
 

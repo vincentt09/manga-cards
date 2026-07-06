@@ -34,7 +34,7 @@ const request = async (path, options = {}) => {
       const contentType = response.headers.get("content-type") || "";
       const isJson = contentType.includes("application/json");
       const responseBody = isJson ? await response.json().catch(() => ({})) : {};
-      const isSleepingResponse = !isJson || [502, 503, 504].includes(response.status);
+      const isSleepingResponse = [502, 503, 504].includes(response.status) || (!isJson && response.status >= 500);
 
       if (isSleepingResponse && attempt < maxAttempts) {
         emitApiStatus("waking", attempt);
@@ -91,6 +91,33 @@ const entity = (name) => ({
   bulkCreate: (items) => request(`/entities/${name}/bulk`, { method: "POST", body: JSON.stringify(items) }),
 });
 
+const optimizeImageUpload = async (file) => {
+  const maxRawBytes = 3 * 1024 * 1024;
+  if (file.type === "image/gif") {
+    if (file.size > maxRawBytes) throw new Error("Le GIF dépasse 3 Mo. Réduis sa taille avant l’envoi.");
+    return file;
+  }
+  if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) throw new Error("Format non pris en charge. Utilise PNG, JPG, WEBP ou GIF.");
+  const bitmap = await createImageBitmap(file);
+  const ratio = Math.min(1, 1400 / bitmap.width, 1960 / bitmap.height);
+  const width = Math.max(1, Math.round(bitmap.width * ratio));
+  const height = Math.max(1, Math.round(bitmap.height * ratio));
+  if (file.size <= maxRawBytes && ratio === 1 && file.type === "image/webp") { bitmap.close(); return file; }
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: true });
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  const blob = await new Promise((resolve, reject) => canvas.toBlob(
+    value => value ? resolve(value) : reject(new Error("Compression de l’image impossible.")),
+    "image/webp", 0.86,
+  ));
+  if (blob.size > maxRawBytes) throw new Error("L’image reste trop lourde après compression. Utilise une image moins grande.");
+  return new File([blob], `${file.name.replace(/\.[^.]+$/, "") || "carte"}.webp`, { type: "image/webp" });
+};
+
 export const appClient = {
   auth: {
     me: () => request("/auth/me"),
@@ -132,16 +159,20 @@ export const appClient = {
     Core: {
       UploadFile: async ({ file }) => {
         if (typeof file === "string") return { file_url: file };
+        const originalSize = file.size;
+        const optimizedFile = await optimizeImageUpload(file);
         const data_url = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
           reader.onerror = reject;
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(optimizedFile);
         });
-        return request("/uploads", {
+        const result = await request("/uploads", {
           method: "POST",
-          body: JSON.stringify({ data_url, name: file.name, type: file.type }),
+          body: JSON.stringify({ data_url, name: optimizedFile.name, type: optimizedFile.type }),
+          wakeRetry: false,
         });
+        return { ...result, original_size: originalSize, uploaded_size: optimizedFile.size, optimized: optimizedFile !== file };
       },
     },
   },
