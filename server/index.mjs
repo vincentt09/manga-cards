@@ -1336,6 +1336,59 @@ async function runFunction(req, res, name, db, user) {
     profile.equipped_title_id = titleId;
     profile.updated_date = new Date().toISOString();
     result = { title_id: titleId, label };
+  } else if (name === "getAdminEconomyOverview") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const profiles = entities.PlayerProfile || [];
+    const cards = entities.Card || [];
+    const values = profiles.map((item) => Math.max(0, Number(item.coins || 0))).sort((a, b) => a - b);
+    const gems = profiles.map((item) => Math.max(0, Number(item.gems || 0)));
+    const median = values.length ? (values[Math.floor((values.length - 1) / 2)] + values[Math.ceil((values.length - 1) / 2)]) / 2 : 0;
+    const totalCoins = values.reduce((sum, value) => sum + value, 0);
+    const totalGems = gems.reduce((sum, value) => sum + value, 0);
+    const richest = profiles.map((item) => {
+      const account = db.users.find((candidate) => candidate.id === item.created_by_id);
+      return { user_id: item.created_by_id, name: item.display_name || account?.full_name || "Joueur", coins: Number(item.coins || 0), gems: Number(item.gems || 0) };
+    }).sort((a, b) => b.coins - a.coins).slice(0, 5);
+    const topShare = totalCoins > 0 ? richest.reduce((sum, item) => sum + item.coins, 0) / totalCoins : 0;
+    const incomePerMinute = profiles.reduce((sum, item) => {
+      const playerCards = cards.filter((card) => card.created_by_id === item.created_by_id);
+      return sum + getTotalIncome(playerCards, 0, getLevelFromXp(Number(item.xp || 0)).level);
+    }, 0);
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const recentTransactions = (entities.Transaction || []).filter((item) => new Date(item.created_date || 0).getTime() >= sevenDaysAgo);
+    const created = recentTransactions.reduce((sum, item) => sum + Math.max(0, Number(item.amount || 0)), 0);
+    const spent = recentTransactions.reduce((sum, item) => sum + Math.abs(Math.min(0, Number(item.amount || 0))), 0);
+    const standardPrices = BOOSTER_TYPES.filter((item) => item.currency === "coins").map((item) => Number(item.basePrice || 0)).filter((value) => value > 0);
+    const alerts = [];
+    if (topShare > 0.65 && profiles.length > 5) alerts.push({ level: "warning", label: "Richesse très concentrée", detail: `Les 5 joueurs les plus riches détiennent ${Math.round(topShare * 100)} % des pièces.` });
+    if (incomePerMinute > Math.max(1, totalCoins) * 0.02) alerts.push({ level: "danger", label: "Création monétaire rapide", detail: "Le revenu passif peut augmenter la masse monétaire de plus de 2 % par minute." });
+    if (created > spent * 2 && created > 10_000) alerts.push({ level: "warning", label: "Inflation sur 7 jours", detail: "Plus de deux fois plus de pièces ont été créées que dépensées." });
+    if (!alerts.length) alerts.push({ level: "healthy", label: "Économie stable", detail: "Aucun déséquilibre majeur détecté actuellement." });
+    result = {
+      players: profiles.length, total_coins: totalCoins, total_gems: totalGems,
+      average_coins: profiles.length ? Math.round(totalCoins / profiles.length) : 0, median_coins: Math.round(median),
+      richest, top_share: topShare, income_per_minute: incomePerMinute,
+      seven_day_created: created, seven_day_spent: spent,
+      cheapest_booster: standardPrices.length ? Math.min(...standardPrices) : 0,
+      median_affordability: standardPrices.length ? median / Math.min(...standardPrices) : 0,
+      alerts,
+    };
+  } else if (name === "adminGrantCurrencyAll") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    if (input.confirmation !== "DISTRIBUER") return json(res, 400, { message: "Confirmation administrateur invalide." });
+    const currency = input.currency === "gems" ? "gems" : "coins";
+    const maximum = currency === "gems" ? 10_000 : 10_000_000;
+    const amount = Math.floor(Number(input.amount || 0));
+    if (!Number.isFinite(amount) || amount < 1 || amount > maximum) return json(res, 400, { message: `Montant invalide (maximum ${maximum.toLocaleString("fr-FR")}).` });
+    const now = new Date().toISOString();
+    for (const targetProfile of entities.PlayerProfile || []) {
+      targetProfile[currency] = Math.max(0, Number(targetProfile[currency] || 0)) + amount;
+      targetProfile.updated_date = now;
+      entities.Transaction ||= [];
+      entities.Transaction.push({ id: id(), type: "admin_distribution", description: `Distribution globale : +${amount} ${currency}`, amount: currency === "coins" ? amount : 0, gems_amount: currency === "gems" ? amount : 0, created_by_id: targetProfile.created_by_id, created_date: now });
+    }
+    recordAdminAudit(db, user, "economy_global_distribution", null, { currency, amount, players: (entities.PlayerProfile || []).length });
+    result = { currency, amount, players: (entities.PlayerProfile || []).length };
   } else if (name === "getAdminPlayerControl") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
@@ -2514,8 +2567,10 @@ async function runFunction(req, res, name, db, user) {
     ? { userId: user.id, entities: ["PlayerProfile", "Card", "Quest", "Transaction", "PlayerFrame"] }
     : ["setCardImage", "clearCardImage"].includes(name)
       ? { entities: ["CardDefinition", "CardImageOverride"] }
+      : name === "adminGrantCurrencyAll"
+        ? { entities: ["PlayerProfile", "Transaction", "AdminAudit"] }
       : null;
-  await writeDb(db, targetedWrite);
+  if (name !== "getAdminEconomyOverview") await writeDb(db, targetedWrite);
   return json(res, 200, { data: result });
 }
 

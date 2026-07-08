@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { appClient } from "@/api/appClient";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Users, Image as ImageIcon, BarChart3, Coins, Package, Layers,
-  Search, Crown, Trophy, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList, LockKeyhole
+  Search, Crown, Trophy, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList, LockKeyhole, RefreshCw, Gauge
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -314,20 +314,52 @@ function Badge({ icon, value, color }) {
 }
 
 // ─── Economy Tab ──────────────────────────────────────────────────────────────
-function EconomyTab({ profiles, onGiveCoinsAll, onGiveGemsAll }) {
+function EconomyTab() {
   const [coins, setCoins] = useState("");
   const [gems, setGems] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: overviewResponse, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ["admin_economy_overview"],
+    queryFn: () => appClient.functions.invoke("getAdminEconomyOverview"),
+    refetchInterval: 30_000,
+  });
+  const overview = overviewResponse?.data;
+  const grant = useMutation({
+    mutationFn: ({ currency, amount }) => appClient.functions.invoke("adminGrantCurrencyAll", { currency, amount, confirmation }),
+    onSuccess: response => {
+      setCoins(""); setGems(""); setConfirmation("");
+      queryClient.invalidateQueries({ queryKey: ["admin_profiles"] });
+      queryClient.invalidateQueries({ queryKey: ["admin_economy_overview"] });
+      queryClient.invalidateQueries({ queryKey: ["admin_audit"] });
+      toast({ title: "Distribution effectuée", description: `${response.data.players} joueur(s) ont reçu la récompense.` });
+    },
+    onError: error => toast({ title: "Distribution impossible", description: error.message, variant: "destructive" }),
+  });
+  const format = value => Number(value || 0).toLocaleString("fr-FR");
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-2xl border border-border bg-card p-6">
+    <div className="space-y-5">
+      <div className="game-panel rounded-2xl p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.22em] text-primary">Centre de contrôle</p><h2 className="mt-1 font-display text-xl font-black">Santé de l’économie</h2><p className="mt-1 text-xs text-muted-foreground">Données MongoDB actualisées automatiquement toutes les 30 secondes.</p></div><Button size="sm" variant="outline" disabled={isFetching} onClick={() => refetch()}><RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />Actualiser</Button></div>
+        {isLoading ? <div className="mt-5 h-28 animate-pulse rounded-xl bg-secondary/30" /> : <><div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">{[
+          ["Pièces en circulation", format(overview?.total_coins), "🪙", "text-yellow-300"],
+          ["Gemmes en circulation", format(overview?.total_gems), "💎", "text-cyan-300"],
+          ["Revenu par minute", format(overview?.income_per_minute), "⚡", "text-violet-300"],
+          ["Boosters accessibles", `${Number(overview?.median_affordability || 0).toFixed(1)}×`, "📦", "text-emerald-300"],
+        ].map(([label,value,icon,color]) => <div key={label} className="rounded-xl border border-white/10 bg-black/20 p-3 sm:p-4"><div className="flex items-center justify-between"><span className="text-xl">{icon}</span><Gauge className="h-4 w-4 text-white/20" /></div><p className={`mt-2 break-all font-display text-lg font-black sm:text-xl ${color}`}>{value}</p><p className="mt-1 text-[10px] text-muted-foreground">{label}</p></div>)}</div><div className="mt-4 grid gap-2 lg:grid-cols-3">{overview?.alerts?.map((alert,index) => <div key={`${alert.label}-${index}`} className={`rounded-xl border p-3 ${alert.level === "healthy" ? "border-emerald-500/30 bg-emerald-500/10" : alert.level === "danger" ? "border-red-500/30 bg-red-500/10" : "border-amber-500/30 bg-amber-500/10"}`}><p className="text-xs font-bold">{alert.level === "healthy" ? "✓" : "⚠"} {alert.label}</p><p className="mt-1 text-[10px] text-muted-foreground">{alert.detail}</p></div>)}</div></>}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="game-panel rounded-2xl p-4 sm:p-6">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-2xl">🪙</span>
             <h3 className="font-heading font-bold text-sm">Donner des pièces à tous</h3>
           </div>
           <p className="text-xs text-muted-foreground mb-4">Ajoute un montant de pièces au solde de chaque joueur.</p>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input 
               type="number" 
               placeholder="ex: 1000" 
@@ -336,8 +368,8 @@ function EconomyTab({ profiles, onGiveCoinsAll, onGiveGemsAll }) {
               className="bg-secondary/30 h-11" 
             />
             <Button 
-              onClick={() => { onGiveCoinsAll(Number(coins)); setCoins(""); }} 
-              disabled={!coins || Number(coins) <= 0}
+              onClick={() => grant.mutate({ currency: "coins", amount: Number(coins) })}
+              disabled={!coins || Number(coins) <= 0 || confirmation !== "DISTRIBUER" || grant.isPending}
               className="h-11 px-6 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-black font-bold"
             >
               Donner à tous
@@ -345,13 +377,13 @@ function EconomyTab({ profiles, onGiveCoinsAll, onGiveGemsAll }) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-6">
+        <div className="game-panel rounded-2xl p-4 sm:p-6">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-2xl">💎</span>
             <h3 className="font-heading font-bold text-sm">Donner des gemmes à tous</h3>
           </div>
           <p className="text-xs text-muted-foreground mb-4">Ajoute des gemmes au solde de chaque joueur.</p>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input 
               type="number" 
               placeholder="ex: 10" 
@@ -360,22 +392,25 @@ function EconomyTab({ profiles, onGiveCoinsAll, onGiveGemsAll }) {
               className="bg-secondary/30 h-11" 
             />
             <Button 
-              onClick={() => { onGiveGemsAll(Number(gems)); setGems(""); }} 
-              disabled={!gems || Number(gems) <= 0}
+              onClick={() => grant.mutate({ currency: "gems", amount: Number(gems) })}
+              disabled={!gems || Number(gems) <= 0 || confirmation !== "DISTRIBUER" || grant.isPending}
               className="h-11 px-6 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white font-bold"
             >
               Donner à tous
             </Button>
           </div>
         </div>
+        </div>
+        <aside className="game-panel rounded-2xl p-4 sm:p-5"><h3 className="font-heading text-sm font-bold">Répartition des richesses</h3><div className="mt-3 space-y-2">{overview?.richest?.map((player,index) => <div key={player.user_id} className="flex items-center gap-3 rounded-xl bg-black/20 p-2.5"><span className="grid h-7 w-7 place-items-center rounded-full bg-primary/15 text-xs font-black text-primary">{index+1}</span><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{player.name}</p><p className="text-[10px] text-muted-foreground">{format(player.gems)} gemmes</p></div><span className="text-xs font-black text-yellow-300">{format(player.coins)}</span></div>)}</div><div className="mt-4 grid grid-cols-2 gap-2 text-center"><div className="rounded-lg bg-secondary/30 p-2"><p className="text-sm font-black">{format(overview?.median_coins)}</p><p className="text-[9px] text-muted-foreground">Médiane</p></div><div className="rounded-lg bg-secondary/30 p-2"><p className="text-sm font-black">{format(overview?.average_coins)}</p><p className="text-[9px] text-muted-foreground">Moyenne</p></div></div></aside>
       </div>
 
-      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6">
+      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle className="w-5 h-5 text-destructive" />
           <h3 className="font-heading font-bold text-sm text-destructive">Zone sensible</h3>
         </div>
-        <p className="text-xs text-muted-foreground">Les actions économiques sont irréversibles. Agis avec précaution.</p>
+        <p className="text-xs text-muted-foreground">Une distribution globale est irréversible et influence directement les prix du marché.</p>
+        <label className="mt-3 block max-w-sm text-xs font-semibold">Écris DISTRIBUER pour autoriser les boutons<Input value={confirmation} onChange={event => setConfirmation(event.target.value.toUpperCase())} placeholder="DISTRIBUER" className="mt-1.5 bg-background" /></label>
       </div>
     </div>
   );
@@ -473,18 +508,6 @@ export default function Admin() {
     toast({ title: "🔄 Joueur réinitialisé" });
   };
 
-  const handleGiveCoinsAll = async (amount) => {
-    await Promise.all(profiles.map(p => appClient.entities.PlayerProfile.update(p.id, { coins: (p.coins || 0) + amount })));
-    queryClient.invalidateQueries({ queryKey: ["admin_profiles"] });
-    toast({ title: `🪙 +${amount.toLocaleString()} pièces donnés à ${profiles.length} joueurs` });
-  };
-
-  const handleGiveGemsAll = async (amount) => {
-    await Promise.all(profiles.map(p => appClient.entities.PlayerProfile.update(p.id, { gems: (p.gems || 0) + amount })));
-    queryClient.invalidateQueries({ queryKey: ["admin_profiles"] });
-    toast({ title: `💎 +${amount} gemmes donnés à ${profiles.length} joueurs` });
-  };
-
   return (
     <div className="min-h-screen pb-20 md:pb-4 md:pt-14 bg-gradient-to-b from-background to-background/80">
       <Navbar />
@@ -555,7 +578,7 @@ export default function Admin() {
             {tab === "events"   && <DropEventsManager />}
             {tab === "frames"   && <FramesManager />}
             {tab === "titles"   && <TitlesManager />}
-            {tab === "economy"  && <EconomyTab profiles={profiles} onGiveCoinsAll={handleGiveCoinsAll} onGiveGemsAll={handleGiveGemsAll} />}
+            {tab === "economy"  && <EconomyTab />}
             {tab === "audit"    && <AuditLog entries={auditEntries} />}
             {tab === "security" && <AdminSecurityCenter />}
           </motion.div>
