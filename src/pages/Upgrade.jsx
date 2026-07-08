@@ -103,7 +103,7 @@ function UpgradePanel({ card, profile, onUpgrade, isUpgrading, upgradeSuccess })
         <div className="flex items-center gap-3">
           <div className="w-16 h-20 rounded-xl overflow-hidden border-2 border-white/10 shrink-0">
             {card.image_url ? (
-              <img src={card.image_url} alt={card.name} className="w-full h-full object-cover object-top" />
+              <img src={card.image_url} alt={card.name} className="w-full h-full object-contain bg-black" />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-black/20">
                 <Zap className="w-6 h-6 text-white/40" />
@@ -222,7 +222,7 @@ function CardListItem({ card, selected, profile, onClick }) {
       }`}>
       <div className={`w-12 h-16 rounded-lg overflow-hidden border ${cfg.borderColor} shrink-0`}>
         {card.image_url ? (
-          <img src={card.image_url} alt={card.name} className="w-full h-full object-cover object-top" />
+          <img src={card.image_url} alt={card.name} className="w-full h-full object-contain bg-black" />
         ) : (
           <div className={`w-full h-full bg-gradient-to-b ${cfg.gradient} flex items-center justify-center`}>
             <Zap className="w-4 h-4 text-white/40" />

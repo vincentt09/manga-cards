@@ -143,7 +143,7 @@ function SingleCardReveal({ card, index, onRevealed, imageOverrides = [] }) {
               transition={{ duration: 0.35, type: "spring" }}
               className={`w-36 h-52 sm:w-40 sm:h-58 rounded-xl overflow-hidden border-2 ${rarity.borderColor} relative ${glowClass}`}
             >
-              <img src={displayImageUrl} alt={card.name} className="w-full h-full object-cover object-top" />
+              <img src={displayImageUrl} alt={card.name} className="w-full h-full object-contain" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
               {/* High rarity shimmer */}

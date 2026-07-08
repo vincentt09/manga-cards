@@ -423,7 +423,7 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
 
                     {/* Image Container with Drop Zone */}
                     <div 
-                      className={`aspect-[3/4] mb-3 rounded-xl overflow-hidden relative mt-4 transition-all duration-300 ${
+                      className={`aspect-[2/3] mb-3 rounded-xl overflow-hidden relative mt-4 transition-all duration-300 ${
                         isUploading 
                           ? 'bg-gradient-to-br from-primary/20 to-accent/20 border-2 border-primary/50' 
                           : isSuccess 
@@ -486,7 +486,7 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
                             key={displayUrl}
                             src={displayUrl} 
                             alt={card.name}
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover/image:scale-110 rounded-xl"
+                            className="w-full h-full object-contain transition-transform duration-300 group-hover/image:scale-[1.02] rounded-xl bg-black"
                             onLoad={e => {
                               e.currentTarget.style.display = '';
                               e.currentTarget.nextElementSibling?.classList.add('hidden');

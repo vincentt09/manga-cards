@@ -18,7 +18,7 @@ function RewardImage({ reward }) {
       style={{ transformStyle: "preserve-3d" }}
     >
       {imageUrl ? (
-        <img src={imageUrl} alt={item?.name || "Récompense"} className={`h-full w-full ${reward?.kind === "frame" ? "object-fill" : "object-cover object-top"}`} />
+        <img src={imageUrl} alt={item?.name || "Récompense"} className={`h-full w-full ${reward?.kind === "frame" ? "object-fill" : "object-contain"}`} />
       ) : (
         <div className="grid h-full w-full place-items-center bg-gradient-to-br from-slate-900 to-black">
           {reward?.kind === "frame" ? <FrameIcon className="h-16 w-16 text-cyan-300" /> : <Gift className="h-16 w-16 text-yellow-300" />}

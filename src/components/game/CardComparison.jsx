@@ -72,7 +72,7 @@ export default function CardComparison({ cards, onClose }) {
               <p className="text-xs text-muted-foreground">{card1.anime}</p>
             </div>
             <div className={`rounded-xl overflow-hidden border-2 border-${card1.rarity === 'legendary' ? 'yellow' : card1.rarity === 'secret' ? 'rose' : 'purple'}-500/50`}>
-              <img src={card1.image_url} alt={card1.name} className="w-full aspect-[3/4] object-cover" />
+              <img src={card1.image_url} alt={card1.name} className="w-full aspect-[2/3] object-contain bg-black" />
             </div>
             <div className={`text-center px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r ${getRarityColor(card1.rarity)} text-white inline-block`}>
               {card1.rarity}
@@ -86,7 +86,7 @@ export default function CardComparison({ cards, onClose }) {
               <p className="text-xs text-muted-foreground">{card2.anime}</p>
             </div>
             <div className={`rounded-xl overflow-hidden border-2 border-${card2.rarity === 'legendary' ? 'yellow' : card2.rarity === 'secret' ? 'rose' : 'purple'}-500/50`}>
-              <img src={card2.image_url} alt={card2.name} className="w-full aspect-[3/4] object-cover" />
+              <img src={card2.image_url} alt={card2.name} className="w-full aspect-[2/3] object-contain bg-black" />
             </div>
             <div className={`text-center px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r ${getRarityColor(card2.rarity)} text-white inline-block`}>
               {card2.rarity}

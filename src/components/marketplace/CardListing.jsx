@@ -34,7 +34,7 @@ export default function CardListing({ listing, onBuy, onCancel, isOwnListing, is
     >
       <div className={`relative h-40 overflow-hidden bg-gradient-to-br ${rarity.gradient} sm:h-44`}>
         {displayImageUrl ? <img src={displayImageUrl} alt={listing.card_name}
-          className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500" /> : (
+          className="w-full h-full object-contain bg-black group-hover:scale-[1.02] transition-transform duration-300" /> : (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-white/65">
             <ImageOff className="h-8 w-8 opacity-50" />
             <span className="text-xs font-bold">Illustration à venir</span>

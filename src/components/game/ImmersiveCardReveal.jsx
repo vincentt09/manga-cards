@@ -30,8 +30,8 @@ function getDisplayImage(card, imageOverrides = []) {
     manga_god: ["_mg"],
   }[card.rarity] || ["_n"];
 
-  const override = imageOverrides.find(item =>
-    item.card_name?.toLowerCase() === card.name?.toLowerCase()
+  const override = imageOverrides.find(item => item.card_id === (card.card_definition_id || card.id))
+    || imageOverrides.find(item => item.card_name?.toLowerCase() === card.name?.toLowerCase()
     && item.card_id
     && suffixes.some(suffix => item.card_id.endsWith(suffix))
   );
@@ -201,7 +201,7 @@ function SingleCardReveal({ card, index, onRevealed, forceReveal = false, imageO
           </motion.div>
         ) : (
           <motion.div key="front" initial={{ rotateY: -90, opacity: 0 }} animate={{ rotateY: 0, opacity: 1 }} className={`relative h-60 w-40 overflow-hidden rounded-2xl border-2 shadow-2xl sm:h-72 sm:w-48 ${rarity.borderColor} ${special ? "shadow-primary/40" : "shadow-black/40"}`}>
-            {imageUrl ? <img src={imageUrl} alt={card.name} className="h-full w-full object-cover object-top" /> : <div className="grid h-full w-full place-items-center bg-slate-950"><Sparkles className="h-12 w-12 text-primary" /></div>}
+            {imageUrl ? <img src={imageUrl} alt={card.name} className="h-full w-full object-contain" /> : <div className="grid h-full w-full place-items-center bg-slate-950"><Sparkles className="h-12 w-12 text-primary" /></div>}
             <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/15 to-white/10" />
             {special && <motion.div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent" initial={{ x: "-130%" }} animate={{ x: "130%" }} transition={{ duration: 0.65 }} />}
             <FloatingParticles rarity={card.rarity} active={particles} />

@@ -63,7 +63,7 @@ function CardSlot({ card, onRemove, empty, imageOverrides = [] }) {
       style={{ height: 88 }}
       onClick={onRemove}>
       {displayCard.image_url ? (
-        <img src={displayCard.image_url} alt={displayCard.name} className="w-full h-full object-cover object-top" />
+        <img src={displayCard.image_url} alt={displayCard.name} className="w-full h-full object-contain bg-black" />
       ) : (
         <div className="w-full h-full flex items-center justify-center text-xs font-bold text-white/80 text-center px-1">{displayCard.name}</div>
       )}
@@ -99,7 +99,7 @@ function PickerCard({ card, selected, onClick, imageOverrides = [] }) {
       className={`relative rounded-xl border-2 overflow-hidden cursor-pointer transition-all ${selected ? "border-primary ring-2 ring-primary/40" : cfg.borderColor}`}
       style={{ height: 100 }}>
       {displayCard.image_url ? (
-        <img src={displayCard.image_url} alt={displayCard.name} className="w-full h-full object-cover object-top" />
+        <img src={displayCard.image_url} alt={displayCard.name} className="w-full h-full object-contain bg-black" />
       ) : (
         <div className={`w-full h-full bg-gradient-to-b ${cfg.gradient} flex items-center justify-center text-xs font-bold text-white/80 text-center px-1`}>{displayCard.name}</div>
       )}
@@ -132,7 +132,7 @@ function ResultOverlay({ card, onClose }) {
         style={{ width: 220, height: 310 }}
         onClick={e => e.stopPropagation()}>
         {card.image_url && (
-          <img src={card.image_url} alt={card.name} className="w-full h-full object-cover object-top" />
+          <img src={card.image_url} alt={card.name} className="w-full h-full object-contain bg-black" />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent" />
         <div className="absolute top-3 left-0 right-0 text-center">

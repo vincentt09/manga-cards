@@ -26,7 +26,7 @@ function CardImg({ card }) {
     <img 
       src={src} 
       alt={card.name}
-      className="w-full h-full object-cover object-top"
+      className="w-full h-full object-contain"
       loading="lazy" 
       decoding="async"
       draggable="false"
@@ -49,12 +49,8 @@ export default function CardComponent({ card, onClick, imageOverrides = [], appl
     "manga_god": ["_mg"]
   }[card.rarity] || ["_n"];
   
-  const override = imageOverrides.find(o => 
-    o.card_name && 
-    o.card_name.toLowerCase() === card.name.toLowerCase() &&
-    o.card_id &&
-    raritySuffixes.some(suffix => o.card_id.endsWith(suffix))
-  );
+  const override = imageOverrides.find(o => o.card_id === card.card_definition_id)
+    || imageOverrides.find(o => o.card_name && o.card_name.toLowerCase() === card.name.toLowerCase() && o.card_id && raritySuffixes.some(suffix => o.card_id.endsWith(suffix)));
   const displayCard = override ? { ...card, image_url: override.image_url } : card;
 
   const borderColor = {

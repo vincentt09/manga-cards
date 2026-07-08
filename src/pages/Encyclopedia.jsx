@@ -32,7 +32,7 @@ function CardEntry({ cardDef, owned }) {
           <img
             src={cardDef.image_url}
             alt={cardDef.name}
-            className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
+            className="w-full h-full object-contain bg-black group-hover:scale-[1.02] transition-transform duration-300"
             onError={() => setImgErr(true)}
           />
         )}

@@ -228,7 +228,7 @@ export default function Collection() {
                 return (
                   <article key={gift.id} className="flex gap-3 rounded-xl border border-border/60 bg-background/60 p-3">
                     <div className="relative aspect-[2/3] w-14 shrink-0 overflow-hidden rounded-lg bg-secondary">
-                      {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-cover" /> : <Gift className="absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 text-yellow-300" />}
+                      {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain bg-black" /> : <Gift className="absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 text-yellow-300" />}
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-1 text-sm font-bold">{gift.title || item?.name || "Cadeau"}</p>

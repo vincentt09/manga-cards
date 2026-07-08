@@ -14,7 +14,7 @@ function TeamCard({ card, onRemove }) {
   const rarity = RARITY_CONFIG[card.rarity] || RARITY_CONFIG.normale;
   return (
     <motion.button layout type="button" onClick={onRemove} className={`group relative aspect-[2/3] overflow-hidden rounded-xl border-2 ${rarity.borderColor} bg-gradient-to-b ${rarity.gradient}`}>
-      {card.image_url ? <img src={card.image_url} alt={card.name} className="h-full w-full object-cover object-top" /> : <div className="grid h-full place-items-center px-2 text-xs font-bold text-white">{card.name}</div>}
+      {card.image_url ? <img src={card.image_url} alt={card.name} className="h-full w-full object-contain bg-black" /> : <div className="grid h-full place-items-center px-2 text-xs font-bold text-white">{card.name}</div>}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent px-2 pb-2 pt-7 text-left">
         <p className="truncate text-[11px] font-bold text-white">{card.name}</p>
         <p className="text-[9px] text-white/70">Niv. {card.level || 1} · ⚡{card.power}</p>
