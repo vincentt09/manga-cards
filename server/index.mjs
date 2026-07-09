@@ -504,8 +504,13 @@ const writeDb = async (db, targeted = null) => {
   fs.writeFileSync(dbFile, JSON.stringify(db, null, 2));
 };
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type,Authorization",
+};
 const json = (res, status, body) => {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(status, { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
 };
 const body = async (req) => {
@@ -837,7 +842,7 @@ async function authRoutes(req, res, pathname, db) {
   return false;
 }
 
-const redirect = (res, location) => { res.writeHead(302, { Location: location }); res.end(); };
+const redirect = (res, location) => { res.writeHead(302, { ...corsHeaders, Location: location }); res.end(); };
 
 async function uploadRoutes(req, res, pathname, user) {
   const remote = await mongoDb();
@@ -1086,7 +1091,11 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
 async function runFunction(req, res, name, db, user) {
   const input = await body(req);
   const entities = db.entities;
+  const profileIdsBeforeRepair = new Set((entities.PlayerProfile || []).map((item) => item.id));
+  ensureUserProfile(db, user);
   let profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
+  let forceWrite = (entities.PlayerProfile || []).some((item) => !profileIdsBeforeRepair.has(item.id))
+    || (entities.PlayerProfile || []).length !== profileIdsBeforeRepair.size;
   let result;
 
   if (name === "ensurePlayerProfile") {
@@ -1111,6 +1120,7 @@ async function runFunction(req, res, name, db, user) {
         reason: "inventory_read",
         cards: result.length,
       });
+      forceWrite = true;
     }
   } else if (name === "getMyGiftInbox") {
     entities.PlayerGift ||= [];
@@ -2239,7 +2249,7 @@ async function runFunction(req, res, name, db, user) {
     const now = Date.now();
     const lastClaim = profile.passive_income_last_claim ? new Date(profile.passive_income_last_claim).getTime() : 0;
     if (lastClaim && now - lastClaim < 55_000) {
-      result = { amount: 0, coins: Number(profile.coins || 0), next_claim_at: new Date(lastClaim + 60_000).toISOString() };
+      result = { amount: 0, coins: Number(profile.coins || 0), profile, next_claim_at: new Date(lastClaim + 60_000).toISOString() };
     } else {
       const unlocked = new Set((entities.PlayerTalent || [])
         .filter((talent) => talent.created_by_id === user.id && talent.is_unlocked)
@@ -2256,7 +2266,7 @@ async function runFunction(req, res, name, db, user) {
       profile.coins = Number(profile.coins || 0) + amount;
       profile.passive_income_last_claim = new Date(now).toISOString();
       profile.updated_date = new Date(now).toISOString();
-      result = { amount, income_per_minute: incomePerMinute, paid_minutes: paidTicks, coins: profile.coins };
+      result = { amount, income_per_minute: incomePerMinute, paid_minutes: paidTicks, coins: profile.coins, profile };
     }
   } else if (name === "openBooster") {
     if (!profile) return json(res, 404, { message: "Profil joueur introuvable." });
@@ -2563,14 +2573,35 @@ async function runFunction(req, res, name, db, user) {
   } else {
     return json(res, 501, { message: `La fonction ${name} doit encore être adaptée.` });
   }
+  const readOnlyFunctions = new Set([
+    "getMyGiftInbox", "getFriendsState", "searchFriendPlayers", "getPublicProfile",
+    "getTitleCatalog", "getAdminEconomyOverview", "getAdminPlayerControl",
+    "getAdminFrames", "getAdminBackups", "getAdminPlayerActivity", "getAdminSecurityOverview",
+    "getSystemMarket", "getLeaderboard",
+  ]);
   const targetedWrite = name === "openBooster"
     ? { userId: user.id, entities: ["PlayerProfile", "Card", "Quest", "Transaction", "PlayerFrame"] }
-    : ["setCardImage", "clearCardImage"].includes(name)
-      ? { entities: ["CardDefinition", "CardImageOverride"] }
-      : name === "adminGrantCurrencyAll"
-        ? { entities: ["PlayerProfile", "Transaction", "AdminAudit"] }
-      : null;
-  if (name !== "getAdminEconomyOverview") await writeDb(db, targetedWrite);
+    : name === "claimPassiveIncome"
+      ? { userId: user.id, entities: ["PlayerProfile", "Transaction"] }
+      : ["claimPlayerGift", "buySystemMarketCard", "createMarketListing", "cancelMarketListing", "fuseCards"].includes(name)
+        ? { userId: user.id, entities: ["PlayerProfile", "Card", "PlayerGift", "Transaction", "MarketListing"] }
+        : ["adminGrantPlayerCard", "adminRevokePlayerCard", "adminRepairPlayerInventory", "buyMarketListing"].includes(name)
+          ? { entities: ["PlayerProfile", "Card", "PlayerGift", "Transaction", "MarketListing", "AdminAudit"] }
+        : ["applyCardFrame", "purchaseFrame", "adminGrantPlayerFrame", "adminRevokePlayerFrame"].includes(name)
+          ? (name.startsWith("admin")
+            ? { entities: ["PlayerProfile", "Card", "PlayerFrame", "Transaction", "AdminAudit"] }
+            : { userId: user.id, entities: ["PlayerProfile", "Card", "PlayerFrame", "Transaction"] })
+          : ["setPveDeck", "getPveState", "fightPveBoss", "unlockTalent", "claimLevelReward", "claimQuest", "equipTitle", "updateProfileCustomization"].includes(name)
+            ? { userId: user.id, entities: ["PlayerProfile", "PlayerTalent", "Quest", "Transaction", "PveBattle"] }
+            : ["sendFriendRequest", "manageFriendship", "deleteFriendMessage"].includes(name)
+              ? { entities: ["Friendship", "DirectMessage"] }
+              : ["setCardImage", "clearCardImage"].includes(name)
+                ? { entities: ["CardDefinition", "CardImageOverride"] }
+                : name === "adminGrantCurrencyAll"
+                  ? { entities: ["PlayerProfile", "Transaction", "AdminAudit"] }
+                  : null;
+  const shouldWrite = forceWrite || (!readOnlyFunctions.has(name) && name !== "getMyCards");
+  if (shouldWrite) await writeDb(db, targetedWrite);
   return json(res, 200, { data: result });
 }
 
@@ -2584,6 +2615,11 @@ const serveStatic = (req, res, pathname) => {
 
 export const handleRequest = async (req, res) => {
   try {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname.startsWith("/api/uploads/") && req.method === "GET") {
       if (await uploadRoutes(req, res, url.pathname, null) !== false) return;

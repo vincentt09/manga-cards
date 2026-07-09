@@ -325,6 +325,9 @@ export default function Boosters() {
         }
         setCurrentBooster(booster);
         setRevealCards(result.cards);
+        if (result.profile) {
+          queryClient.setQueryData(["profile"], [result.profile]);
+        }
         // L'animation démarre dès que le tirage est confirmé. Les données de
         // fond se rafraîchissent ensuite sans retenir le joueur sur le bouton.
         void Promise.all([

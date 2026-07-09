@@ -18,7 +18,9 @@ export default function usePassiveIncome(profile, cards) {
       lastTickRef.current = Date.now();
 
       try {
-        await appClient.functions.invoke("claimPassiveIncome", {});
+        const response = await appClient.functions.invoke("claimPassiveIncome", {});
+        const data = response?.data || {};
+        if (data.profile) queryClient.setQueryData(["profile"], [data.profile]);
         queryClient.invalidateQueries({ queryKey: ["profile"] });
       } catch (e) {
         // silent fail
@@ -26,5 +28,5 @@ export default function usePassiveIncome(profile, cards) {
     }, TICK_MS);
 
     return () => clearInterval(interval);
-  }, [profile?.id, cards?.length]);
+  }, [profile?.id, cards?.length, queryClient]);
 }
