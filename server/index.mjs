@@ -171,6 +171,57 @@ const repairDuplicatePlayerProfiles = (db) => {
   if (removedIds.size) db.entities.PlayerProfile = profiles.filter(profile => !removedIds.has(profile.id));
   return merged;
 };
+const USER_REFERENCE_FIELDS = ["created_by_id", "user_id", "owner_id", "player_id", "recipient_id", "sender_id", "requester_id", "seller_id", "buyer_id", "highest_bidder_id", "granted_by_id", "resolved_by"];
+const repairDuplicateUsers = (db) => {
+  const users = db.users || [];
+  const groups = new Map();
+  for (const user of users) {
+    const email = String(user.email || "").trim().toLowerCase();
+    if (!email) continue;
+    user.email = email;
+    if (!groups.has(email)) groups.set(email, []);
+    groups.get(email).push(user);
+  }
+  const removedIds = new Set();
+  const merged = [];
+  for (const duplicates of groups.values()) {
+    if (duplicates.length < 2) continue;
+    const profileScore = (candidate) => {
+      const profile = (db.entities.PlayerProfile || []).find((item) => item.created_by_id === candidate.id || String(item.created_by || "").trim().toLowerCase() === candidate.email);
+      return Number(profile?.xp || 0) + Number(profile?.boosters_opened || 0) * 100 + Number(profile?.coins || 0) / 1000;
+    };
+    const ordered = [...duplicates].sort((a, b) => {
+      if (a.role === "admin" && b.role !== "admin") return -1;
+      if (b.role === "admin" && a.role !== "admin") return 1;
+      return profileScore(b) - profileScore(a) || new Date(a.created_date || 0) - new Date(b.created_date || 0);
+    });
+    const canonical = ordered[0];
+    canonical.email = String(canonical.email || "").trim().toLowerCase();
+    for (const duplicate of ordered.slice(1)) {
+      if (!canonical.password_hash && duplicate.password_hash) {
+        canonical.password_hash = duplicate.password_hash;
+        canonical.password_salt = duplicate.password_salt;
+      }
+      canonical.provider ||= duplicate.provider;
+      canonical.avatar_url ||= duplicate.avatar_url;
+      canonical.full_name ||= duplicate.full_name;
+      if (duplicate.role === "admin") canonical.role = "admin";
+      canonical.created_date = [canonical.created_date, duplicate.created_date].filter(Boolean).sort()[0] || canonical.created_date;
+      canonical.updated_date = new Date().toISOString();
+      for (const row of Object.values(db.entities || {}).flatMap((rows) => Array.isArray(rows) ? rows : [])) {
+        for (const field of USER_REFERENCE_FIELDS) if (row[field] === duplicate.id) row[field] = canonical.id;
+        if (String(row.created_by || "").trim().toLowerCase() === duplicate.email) row.created_by = canonical.email;
+        if (String(row.granted_by || "").trim().toLowerCase() === duplicate.email) row.granted_by = canonical.email;
+      }
+      for (const session of db.sessions || []) if (session.user_id === duplicate.id) session.user_id = canonical.id;
+      for (const token of db.resetTokens || []) if (token.user_id === duplicate.id) token.user_id = canonical.id;
+      removedIds.add(duplicate.id);
+      merged.push({ kept_id: canonical.id, removed_id: duplicate.id, email: canonical.email });
+    }
+  }
+  if (removedIds.size) db.users = users.filter((user) => !removedIds.has(user.id));
+  return merged;
+};
 const FUSION_RECIPES = {
   normale: { count: 5, copiesEach: 5, result: "legendaire", cost: 50_000, minLevel: 10, xp: 1_000 },
   legendaire: { count: 5, copiesEach: 3, result: "secrète", cost: 250_000, minLevel: 15, xp: 5_000 },
@@ -378,6 +429,13 @@ const syncMongoPlayerRows = async (collection, rows, userId, key = "id") => {
   const ids = ownedRows.map((row) => row[key]).filter(Boolean);
   await collection.deleteMany({ created_by_id: userId, ...(ids.length ? { [key]: { $nin: ids } } : {}) });
 };
+const upsertMongoRows = async (collection, rows, key = "id") => {
+  const safeRows = (rows || []).filter((row) => row?.[key]);
+  if (!safeRows.length) return;
+  await collection.bulkWrite(safeRows.map((row) => ({
+    replaceOne: { filter: { [key]: row[key] }, replacement: row, upsert: true },
+  })), { ordered: false });
+};
 const entityCollectionName = (name) => name === "Card" ? "cards" : `entity_${name}`;
 const stackOwnedCards = (cards = []) => {
   const stacked = new Map();
@@ -408,8 +466,9 @@ const readDb = async () => {
   const remote = await mongoDb();
   if (!remote) {
     if (!warnedAboutMongo) { console.warn("MongoDB non configure : stockage JSON local actif."); warnedAboutMongo = true; }
+    const repairedUsers = repairDuplicateUsers(db);
     const repairedProfiles = repairDuplicatePlayerProfiles(db);
-    if (repairedProfiles.length) fs.writeFileSync(dbFile, JSON.stringify(db, null, 2));
+    if (repairedUsers.length || repairedProfiles.length) fs.writeFileSync(dbFile, JSON.stringify(db, null, 2));
     dbCache = db;
     return dbCache;
   }
@@ -441,10 +500,14 @@ const readDb = async () => {
     if (!rows.length && db.entities[name]?.length) await collection.insertMany(db.entities[name]);
     else db.entities[name] = rows.map(({ _id, ...row }) => row);
   }));
+  const repairedUsers = repairDuplicateUsers(db);
   const repairedProfiles = repairDuplicatePlayerProfiles(db);
-  if (repairedProfiles.length) {
+  if (repairedUsers.length || repairedProfiles.length) {
+    if (repairedUsers.length) await syncMongoCollection(remote.collection("users"), db.users);
     await syncMongoCollection(remote.collection(entityCollectionName("PlayerProfile")), db.entities.PlayerProfile);
-    console.log(`${repairedProfiles.length} profil(s) joueur en double fusionné(s).`);
+    await syncMongoCollection(remote.collection("auth_sessions"), db.sessions, "token");
+    await syncMongoCollection(remote.collection("auth_reset_tokens"), db.resetTokens, "token");
+    console.log(`${repairedUsers.length} compte(s) et ${repairedProfiles.length} profil(s) joueur en double fusionné(s).`);
   }
   db.entities.CardDefinition ||= [];
   db.entities.DeletedCardDefinition ||= [];
@@ -478,7 +541,24 @@ const writeDb = async (db, targeted = null) => {
   fs.mkdirSync(dataDir, { recursive: true });
   const remote = await mongoDb();
   if (remote) {
-    if (targeted?.userId && targeted?.entities?.length) {
+    if (targeted?.auth?.length) {
+      const tasks = [];
+      if (targeted.auth.includes("users")) tasks.push(upsertMongoRows(remote.collection("users"), db.users));
+      if (targeted.auth.includes("sessionsFull")) {
+        tasks.push(syncMongoCollection(remote.collection("auth_sessions"), db.sessions, "token"));
+      } else if (targeted.auth.includes("sessions")) {
+        tasks.push(upsertMongoRows(remote.collection("auth_sessions"), db.sessions, "token"));
+        tasks.push(remote.collection("auth_sessions").deleteMany({ expires_at: { $lte: Date.now() } }));
+      }
+      if (targeted.auth.includes("resetTokens")) tasks.push(syncMongoCollection(remote.collection("auth_reset_tokens"), db.resetTokens, "token"));
+      if (targeted.auth.includes("oauthStates")) tasks.push(syncMongoCollection(remote.collection("auth_oauth_states"), db.oauthStates, "state"));
+      if (targeted.userId && targeted.entities?.length) {
+        tasks.push(...targeted.entities.map((name) => syncMongoPlayerRows(
+          remote.collection(entityCollectionName(name)), db.entities[name] || [], targeted.userId,
+        )));
+      }
+      await Promise.all(tasks);
+    } else if (targeted?.userId && targeted?.entities?.length) {
       await Promise.all(targeted.entities.map((name) => syncMongoPlayerRows(
         remote.collection(entityCollectionName(name)), db.entities[name] || [], targeted.userId,
       )));
@@ -710,19 +790,43 @@ const getSystemMarketOffers = (db, date = new Date()) => {
 };
 const seedProfile = (db, user) => {
   db.entities.PlayerProfile ||= [];
+  const existing = db.entities.PlayerProfile.find((item) => item.created_by_id === user.id || String(item.created_by || "").trim().toLowerCase() === user.email);
+  if (existing) {
+    existing.created_by_id = user.id;
+    existing.created_by = user.email;
+    existing.display_name ||= user.full_name || user.email.split("@")[0];
+    existing.avatar_url ||= user.avatar_url || null;
+    existing.updated_date = new Date().toISOString();
+    return existing;
+  }
   db.entities.PlayerProfile.push({
     id: id(), created_by_id: user.id, created_by: user.email,
     created_date: new Date().toISOString(), updated_date: new Date().toISOString(),
     display_name: user.full_name || user.email.split("@")[0], level: 1, xp: 0,
     coins: 2500, gems: 100, talent_points: 0,
   });
+  return db.entities.PlayerProfile.at(-1);
 };
 const ensureUserProfile = (db, user) => {
+  user.email = String(user.email || "").trim().toLowerCase();
   repairDuplicatePlayerProfiles(db);
   let profile = (db.entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   if (!profile) {
-    seedProfile(db, user);
-    profile = db.entities.PlayerProfile.find((item) => item.created_by_id === user.id);
+    profile = (db.entities.PlayerProfile || []).find((item) => String(item.created_by || "").trim().toLowerCase() === user.email);
+    if (profile) {
+      profile.created_by_id = user.id;
+      profile.created_by = user.email;
+      profile.display_name ||= user.full_name || user.email.split("@")[0];
+      profile.avatar_url ||= user.avatar_url || null;
+      profile.updated_date = new Date().toISOString();
+      for (const card of db.entities.Card || []) if (String(card.created_by || "").trim().toLowerCase() === user.email) card.created_by_id = user.id;
+      for (const frame of db.entities.PlayerFrame || []) if (String(frame.created_by || "").trim().toLowerCase() === user.email) frame.created_by_id = user.id;
+      repairDuplicatePlayerProfiles(db);
+      profile = (db.entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
+    }
+  }
+  if (!profile) {
+    profile = seedProfile(db, user);
   }
   return profile;
 };
@@ -732,12 +836,15 @@ async function authRoutes(req, res, pathname, db) {
     const input = await body(req);
     const email = input.email?.trim().toLowerCase();
     if (!email || !input.password || input.password.length < 6) return json(res, 400, { message: "E-mail valide et mot de passe de 6 caractères minimum requis." });
-    if (db.users.some((user) => user.email === email)) return json(res, 409, { message: "Un compte existe déjà avec cet e-mail." });
+    const existingUser = db.users.find((user) => user.email === email);
+    if (existingUser?.password_hash) return json(res, 409, { message: "Un compte existe déjà avec cet e-mail." });
     const password = hashPassword(input.password);
-    const user = { id: id(), email, full_name: input.full_name || "", role: db.users.length ? "user" : "admin", password_hash: password.hash, password_salt: password.salt, created_date: new Date().toISOString() };
-    db.users.push(user); seedProfile(db, user);
+    const user = existingUser || { id: id(), email, full_name: input.full_name || "", role: db.users.length ? "user" : "admin", created_date: new Date().toISOString() };
+    user.password_hash = password.hash; user.password_salt = password.salt; user.provider ||= "email";
+    if (!existingUser) db.users.push(user);
+    ensureUserProfile(db, user);
     user.last_login_at = new Date().toISOString();
-    const token = createSession(db, user.id); await writeDb(db);
+    const token = createSession(db, user.id); await writeDb(db, { auth: ["users", "sessions"], userId: user.id, entities: ["PlayerProfile", "Card", "PlayerFrame"] });
     return json(res, 201, { access_token: token, user: publicUser(user) });
   }
   if (pathname === "/api/auth/login" && req.method === "POST") {
@@ -747,7 +854,7 @@ async function authRoutes(req, res, pathname, db) {
     if (isUserSuspended(user)) return json(res, 403, { message: user.suspension_reason || "Ce compte est temporairement suspendu." });
     ensureUserProfile(db, user);
     user.last_login_at = new Date().toISOString();
-    const token = createSession(db, user.id); await writeDb(db);
+    const token = createSession(db, user.id); await writeDb(db, { auth: ["users", "sessions"], userId: user.id, entities: ["PlayerProfile", "Card", "PlayerFrame"] });
     return json(res, 200, { access_token: token, user: publicUser(user) });
   }
   if (pathname === "/api/auth/me") {
@@ -771,27 +878,27 @@ async function authRoutes(req, res, pathname, db) {
         const playerProfile = (db.entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
         if (playerProfile) playerProfile.avatar_url = avatarUrl;
       }
-      await writeDb(db); return json(res, 200, publicUser(user));
+      await writeDb(db, { auth: ["users"], userId: user.id, entities: ["PlayerProfile", "Card", "PlayerFrame"] }); return json(res, 200, publicUser(user));
     }
   }
   if (pathname === "/api/auth/logout" && req.method === "POST") {
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
     db.sessions = db.sessions.filter((session) => session.token !== token);
-    await writeDb(db); return json(res, 200, { success: true });
+    await writeDb(db, { auth: ["sessionsFull"] }); return json(res, 200, { success: true });
   }
   if (pathname === "/api/auth/forgot-password" && req.method === "POST") {
     const input = await body(req); const user = db.users.find((item) => item.email === input.email?.trim().toLowerCase());
     if (!user) return json(res, 200, { success: true });
     const token = crypto.randomBytes(24).toString("hex");
     db.resetTokens = db.resetTokens.filter((item) => item.user_id !== user.id);
-    db.resetTokens.push({ token, user_id: user.id, expires_at: Date.now() + 3600000 }); await writeDb(db);
+    db.resetTokens.push({ token, user_id: user.id, expires_at: Date.now() + 3600000 }); await writeDb(db, { auth: ["resetTokens"] });
     return json(res, 200, { success: true, reset_url: `${frontendUrl}/reset-password?token=${token}` });
   }
   if (pathname === "/api/auth/reset-password" && req.method === "POST") {
     const input = await body(req); const reset = db.resetTokens.find((item) => item.token === input.resetToken && item.expires_at > Date.now());
     if (!reset || !input.newPassword || input.newPassword.length < 6) return json(res, 400, { message: "Lien invalide ou mot de passe trop court." });
     const user = db.users.find((item) => item.id === reset.user_id); const password = hashPassword(input.newPassword);
-    user.password_hash = password.hash; user.password_salt = password.salt; db.resetTokens = db.resetTokens.filter((item) => item !== reset); await writeDb(db);
+    user.password_hash = password.hash; user.password_salt = password.salt; db.resetTokens = db.resetTokens.filter((item) => item !== reset); await writeDb(db, { auth: ["users", "resetTokens"] });
     return json(res, 200, { success: true });
   }
   if (pathname === "/api/auth/google" && req.method === "GET") {
@@ -805,7 +912,7 @@ async function authRoutes(req, res, pathname, db) {
     const returnOrigin = allowedOrigins.has(requestedOrigin) ? requestedOrigin : appUrl(req);
     db.oauthStates = db.oauthStates.filter((item) => item.expires_at > Date.now());
     db.oauthStates.push({ state, return_path: returnPath, return_origin: returnOrigin, expires_at: Date.now() + 10 * 60 * 1000 });
-    await writeDb(db);
+    await writeDb(db, { auth: ["oauthStates"] });
     const callback = `${publicApiUrl(req)}/api/auth/google/callback`;
     const target = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     target.search = new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, redirect_uri: callback, response_type: "code", scope: "openid email profile", state, prompt: "select_account" }).toString();
@@ -816,26 +923,26 @@ async function authRoutes(req, res, pathname, db) {
     const state = requestUrl.searchParams.get("state");
     const oauthState = db.oauthStates.find((item) => item.state === state && item.expires_at > Date.now());
     db.oauthStates = db.oauthStates.filter((item) => item.state !== state && item.expires_at > Date.now());
-    if (!code || !oauthState) { await writeDb(db); return redirect(res, `${appUrl(req)}/login?error=google_invalid_state`); }
+    if (!code || !oauthState) { await writeDb(db, { auth: ["oauthStates"] }); return redirect(res, `${appUrl(req)}/login?error=google_invalid_state`); }
     const callback = `${publicApiUrl(req)}/api/auth/google/callback`;
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uri: callback, grant_type: "authorization_code" }) });
-    if (!tokenResponse.ok) { await writeDb(db); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_failed`); }
+    if (!tokenResponse.ok) { await writeDb(db, { auth: ["oauthStates"] }); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_failed`); }
     const googleToken = await tokenResponse.json(); const infoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${googleToken.access_token}` } });
-    if (!infoResponse.ok) { await writeDb(db); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_profile_failed`); }
+    if (!infoResponse.ok) { await writeDb(db, { auth: ["oauthStates"] }); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_profile_failed`); }
     const info = await infoResponse.json();
     const email = String(info.email || "").trim().toLowerCase();
-    if (!email) { await writeDb(db); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_email_missing`); }
+    if (!email) { await writeDb(db, { auth: ["oauthStates"] }); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=google_email_missing`); }
     let user = db.users.find((item) => item.email === email);
-    if (!user) { user = { id: id(), email, full_name: info.name || email.split("@")[0], avatar_url: info.picture, role: db.users.length ? "user" : "admin", provider: "google", created_date: new Date().toISOString() }; db.users.push(user); seedProfile(db, user); }
+    if (!user) { user = { id: id(), email, full_name: info.name || email.split("@")[0], avatar_url: info.picture, role: db.users.length ? "user" : "admin", provider: "google", created_date: new Date().toISOString() }; db.users.push(user); ensureUserProfile(db, user); }
     else {
       user.provider ||= "google";
       user.avatar_url ||= info.picture || null;
       if (!user.full_name) user.full_name = info.name || email.split("@")[0];
     }
-    if (isUserSuspended(user)) { await writeDb(db); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=account_suspended`); }
+    if (isUserSuspended(user)) { await writeDb(db, { auth: ["oauthStates"] }); return redirect(res, `${oauthState.return_origin || appUrl(req)}/login?error=account_suspended`); }
     ensureUserProfile(db, user);
     user.last_login_at = new Date().toISOString();
-    const token = createSession(db, user.id); await writeDb(db);
+    const token = createSession(db, user.id); await writeDb(db, { auth: ["users", "sessions", "oauthStates"], userId: user.id, entities: ["PlayerProfile", "Card", "PlayerFrame"] });
     const target = new URL(oauthState.return_path, oauthState.return_origin || frontendUrl); target.searchParams.set("access_token", token);
     return redirect(res, target.toString());
   }
