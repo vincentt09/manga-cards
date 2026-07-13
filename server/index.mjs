@@ -765,21 +765,58 @@ const getSystemMarketOffers = (db, date = new Date()) => {
   hourStart.setUTCMinutes(0, 0, 0);
   const hourKey = hourStart.toISOString().slice(0, 13);
   const nextRotationAt = new Date(hourStart.getTime() + 3_600_000).toISOString();
-  const basePrices = { normale: 900, legendaire: 18_000, "secrète": 85_000, manga_god: 450_000 };
-  const ranked = (db.entities.CardDefinition || [])
-    .filter((card) => card.is_active !== false)
-    .map((card) => ({ card, rank: crypto.createHash("sha256").update(`${hourKey}:${card.id}`).digest("hex") }))
+  const rarityTier = (rarity) => {
+    const value = String(rarity || "").toLocaleLowerCase("fr");
+    if (value === "manga_god") return "manga_god";
+    if (value.includes("secr")) return "secret";
+    if (value.includes("legend") || value.includes("légend")) return "legendaire";
+    return "normale";
+  };
+  const basePrices = { normale: 1_100, legendaire: 22_000, secret: 160_000 };
+  const hash = (salt) => crypto.createHash("sha256").update(`${hourKey}:${salt}`).digest("hex");
+  const hashNumber = (salt) => parseInt(hash(salt).slice(0, 8), 16);
+  const rankedPool = (cards, salt) => cards
+    .map((card) => ({ card, rank: hash(`${salt}:${card.id}`) }))
     .sort((a, b) => a.rank.localeCompare(b.rank));
+  const eligible = (db.entities.CardDefinition || [])
+    .filter((card) => card.is_active !== false && !card.is_collector && rarityTier(card.rarity) !== "manga_god");
+  const buckets = {
+    normale: eligible.filter((card) => rarityTier(card.rarity) === "normale"),
+    legendaire: eligible.filter((card) => rarityTier(card.rarity) === "legendaire"),
+    secret: eligible.filter((card) => rarityTier(card.rarity) === "secret"),
+  };
+  const secretAllowed = buckets.secret.length > 0 && hashNumber("secret-market-gate") % 100 < 2;
+  const slots = secretAllowed
+    ? ["normale", "normale", "normale", "legendaire", "secret"]
+    : ["normale", "normale", "normale", "legendaire", "legendaire"];
   const selected = [];
   const characters = new Set();
-  for (const entry of ranked) {
-    if (characters.has(entry.card.name)) continue;
+  const usedIds = new Set();
+  const addEntry = (entry, allowDuplicateCharacter = false) => {
+    if (!entry || usedIds.has(entry.card.id)) return false;
+    if (!allowDuplicateCharacter && characters.has(entry.card.name)) return false;
+    usedIds.add(entry.card.id);
     characters.add(entry.card.name);
     selected.push(entry);
-    if (selected.length === 5) break;
+    return true;
+  };
+  const pickFrom = (poolName, salt, allowDuplicateCharacter = false) => {
+    const pool = rankedPool(buckets[poolName] || [], salt);
+    return pool.some((entry) => addEntry(entry, allowDuplicateCharacter));
+  };
+  slots.forEach((slot, index) => pickFrom(slot, `${slot}:${index}`));
+  const fallbackPool = rankedPool([...buckets.normale, ...buckets.legendaire, ...(secretAllowed ? buckets.secret : [])], "fallback");
+  for (const entry of fallbackPool) {
+    if (selected.length >= 5) break;
+    addEntry(entry);
+  }
+  for (const entry of fallbackPool) {
+    if (selected.length >= 5) break;
+    addEntry(entry, true);
   }
   const offers = selected.map(({ card, rank }) => {
     const priceVariation = 0.90 + (parseInt(rank.slice(0, 4), 16) % 21) / 100;
+    const tier = rarityTier(card.rarity);
     const resolved = resolvedCard(db, { ...card, card_definition_id: card.id });
     return {
       id: `system:${hourKey}:${card.id}`,
@@ -793,7 +830,7 @@ const getSystemMarketOffers = (db, date = new Date()) => {
       card_speed: Number(card.baseSpeed || card.speed || 1),
       card_level: 1,
       card_image_url: resolved.image_url,
-      price: Math.max(1, Math.round(Number(basePrices[card.rarity] || 900) * priceVariation / 100) * 100),
+      price: Math.max(1, Math.round(Number(basePrices[tier] || 1_100) * priceVariation / 100) * 100),
       seller_id: "system",
       seller_name: "Boutique du jeu",
       is_system: true,
