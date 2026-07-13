@@ -80,10 +80,21 @@ const AuthenticatedApp = () => {
   );
 };
 
+function GameAtmosphere() {
+  return (
+    <div className="game-atmosphere" aria-hidden="true">
+      <div className="game-atmosphere__orb game-atmosphere__orb--one" />
+      <div className="game-atmosphere__orb game-atmosphere__orb--two" />
+      <div className="game-atmosphere__rift" />
+      <div className="game-atmosphere__particles" />
+    </div>
+  );
+}
+
 function App() {
   return (
     <AppErrorBoundary><AuthProvider><QueryClientProvider client={queryClientInstance}>
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><ScrollToTop /><NetworkStatus /><AuthenticatedApp /></Router>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><GameAtmosphere /><ScrollToTop /><NetworkStatus /><AuthenticatedApp /></Router>
       <Toaster />
     </QueryClientProvider></AuthProvider></AppErrorBoundary>
   )

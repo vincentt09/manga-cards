@@ -49,13 +49,11 @@ export default function Navbar() {
         <div className="max-w-5xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
             <Link to="/" className="group flex items-center gap-2.5">
-              <span className="relative grid h-9 w-9 place-items-center rounded-xl border border-primary/35 bg-gradient-to-br from-primary/25 to-accent/10 shadow-[0_0_24px_hsl(var(--primary)/.2)] transition-transform group-hover:rotate-3 group-hover:scale-105">
+              <span className="rarity-aura relative grid h-10 w-10 place-items-center rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/35 via-background to-accent/20 shadow-[0_0_28px_hsl(var(--primary)/.26)] transition-transform group-hover:rotate-3 group-hover:scale-105">
                 <Swords className="h-5 w-5 text-primary" />
                 <span className="ambient-pulse absolute -right-1 -top-1 h-2 w-2 rounded-full bg-accent shadow-[0_0_10px_hsl(var(--accent))]" />
               </span>
-              <span className="game-title bg-gradient-to-r from-white via-primary to-accent bg-clip-text text-base font-black text-transparent">
-                MANGA TCG
-              </span>
+              <span className="leading-none"><span className="game-title block bg-gradient-to-r from-white via-primary to-accent bg-clip-text text-base font-black text-transparent">MANGA TCG</span><span className="hidden text-[8px] font-black uppercase tracking-[0.32em] text-accent/80 sm:block">Card Arena</span></span>
             </Link>
             
             {/* Top Navigation - Desktop */}
@@ -66,10 +64,10 @@ export default function Navbar() {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`relative flex items-center gap-2 rounded-xl border px-3 py-2 transition-all ${
+                    className={`game-shine relative flex items-center gap-2 rounded-xl border px-3 py-2 transition-all ${
                       isActive
-                        ? "border-primary/30 bg-primary/15 text-primary shadow-[inset_0_1px_0_hsl(var(--primary)/.12)] font-semibold"
-                        : "border-transparent text-muted-foreground hover:border-white/5 hover:bg-secondary/40 hover:text-foreground"
+                        ? "border-primary/40 bg-gradient-to-r from-primary/20 to-accent/10 text-primary shadow-[inset_0_1px_0_hsl(var(--primary)/.16),0_8px_24px_hsl(var(--primary)/.12)] font-bold"
+                        : "border-white/5 bg-background/15 text-muted-foreground hover:border-primary/25 hover:bg-secondary/45 hover:text-foreground"
                     }`}
                   >
                     <item.icon className="w-4 h-4" />
