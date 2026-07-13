@@ -556,6 +556,10 @@ const writeDb = async (db, targeted = null) => {
         tasks.push(...targeted.entities.map((name) => syncMongoPlayerRows(
           remote.collection(entityCollectionName(name)), db.entities[name] || [], targeted.userId,
         )));
+      } else if (targeted.entities?.length) {
+        tasks.push(...targeted.entities.map((name) => syncMongoCollection(
+          remote.collection(entityCollectionName(name)), db.entities[name] || [],
+        )));
       }
       await Promise.all(tasks);
     } else if (targeted?.userId && targeted?.entities?.length) {
@@ -1042,7 +1046,7 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
       recordAdminAudit(db, user, "user_updated", found, {
         fields: Object.keys(input).filter((field) => ["role", "full_name", "status", "suspended_until", "suspension_reason"].includes(field)),
       });
-      await writeDb(db); return json(res, 200, publicUser(found));
+      await writeDb(db, { auth: ["users"], entities: ["PlayerProfile", "AdminAudit"] }); return json(res, 200, publicUser(found));
     }
     if (req.method === "DELETE" && action) {
       if (user.role !== "admin") return json(res, 403, { message: "Acces administrateur requis." });
@@ -1506,6 +1510,40 @@ async function runFunction(req, res, name, db, user) {
     }
     recordAdminAudit(db, user, "economy_global_distribution", null, { currency, amount, players: (entities.PlayerProfile || []).length });
     result = { currency, amount, players: (entities.PlayerProfile || []).length };
+  } else if (name === "adminUpdatePlayerAccount") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
+    if (!target) return json(res, 404, { message: "Utilisateur introuvable." });
+    const allowedRoles = new Set(["user", "vip", "moderator", "admin"]);
+    const nextRole = String(input.role || target.role || "user");
+    if (!allowedRoles.has(nextRole)) return json(res, 400, { message: "Rôle invalide." });
+    if (target.id === user.id && nextRole !== "admin") return json(res, 400, { message: "Tu ne peux pas retirer ton propre accès administrateur." });
+    const adminCount = db.users.filter((candidate) => candidate.role === "admin").length;
+    if (target.role === "admin" && nextRole !== "admin" && adminCount <= 1) return json(res, 400, { message: "Le dernier administrateur doit conserver son rôle." });
+    const displayName = String(input.full_name ?? target.full_name ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+    if (displayName.length < 2) return json(res, 400, { message: "Pseudo trop court." });
+    const alreadyUsed = db.users.some((candidate) => candidate.id !== target.id && String(candidate.full_name || "").trim().toLocaleLowerCase("fr") === displayName.toLocaleLowerCase("fr"));
+    if (alreadyUsed) return json(res, 409, { message: "Ce pseudo est déjà utilisé." });
+    target.full_name = displayName;
+    target.role = nextRole;
+    target.status = input.status === "suspended" ? "suspended" : "active";
+    target.suspended_until = target.status === "suspended" && input.suspended_until ? new Date(input.suspended_until).toISOString() : null;
+    target.suspension_reason = target.status === "suspended" ? String(input.suspension_reason || "").trim().slice(0, 180) : null;
+    target.updated_date = new Date().toISOString();
+    const targetProfile = ensureUserProfile(db, target);
+    Object.assign(targetProfile, {
+      display_name: displayName,
+      avatar_url: target.avatar_url || targetProfile.avatar_url || null,
+      coins: Math.max(0, Math.floor(Number(input.coins ?? targetProfile.coins ?? 0))),
+      gems: Math.max(0, Math.floor(Number(input.gems ?? targetProfile.gems ?? 0))),
+      xp: Math.max(0, Math.floor(Number(input.xp ?? targetProfile.xp ?? 0))),
+      talent_points: Math.max(0, Math.floor(Number(input.talent_points ?? targetProfile.talent_points ?? 0))),
+      updated_date: new Date().toISOString(),
+    });
+    recordAdminAudit(db, user, "player_account_updated", target, {
+      role: target.role, status: target.status, coins: targetProfile.coins, gems: targetProfile.gems,
+    });
+    result = { user: publicUser(target), profile: targetProfile };
   } else if (name === "getAdminPlayerControl") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
@@ -2706,6 +2744,8 @@ async function runFunction(req, res, name, db, user) {
                 ? { entities: ["CardDefinition", "CardImageOverride"] }
                 : name === "adminGrantCurrencyAll"
                   ? { entities: ["PlayerProfile", "Transaction", "AdminAudit"] }
+                  : name === "adminUpdatePlayerAccount"
+                    ? { auth: ["users"], entities: ["PlayerProfile", "Card", "PlayerFrame", "AdminAudit"] }
                   : null;
   const shouldWrite = forceWrite || (!readOnlyFunctions.has(name) && name !== "getMyCards");
   if (shouldWrite) await writeDb(db, targetedWrite);

@@ -39,7 +39,6 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
   const [giftFrameId, setGiftFrameId] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const getProfile = userId => profiles.find(profile => profile.created_by_id === userId);
   const { data: cardDefinitions = [] } = useQuery({ queryKey: ["admin_user_card_catalog"], queryFn: () => appClient.entities.CardDefinition.list("anime", 1000) });
   const { data: frameCatalog = [] } = useQuery({ queryKey: ["admin_user_frame_catalog"], queryFn: () => appClient.entities.CardFrame.list("name", 500) });
   const { data: playerControl, refetch: refetchPlayerControl, isFetching: playerControlLoading } = useQuery({
@@ -48,6 +47,10 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
     enabled: Boolean(selectedId),
   });
 
+  const profileByUserId = useMemo(() => new Map(profiles.map(profile => [profile.created_by_id, profile])), [profiles]);
+  const userIds = useMemo(() => new Set(users.map(item => item.id)), [users]);
+  const getProfile = userId => profileByUserId.get(userId);
+
   const filteredUsers = useMemo(() => users.filter(item => {
     const query = search.trim().toLowerCase();
     const matchesSearch = !query || item.full_name?.toLowerCase().includes(query) || item.email?.toLowerCase().includes(query);
@@ -55,12 +58,12 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
     return matchesSearch && (filterRole === "all" || item.role === filterRole) && (filterStatus === "all" || (filterStatus === "suspended" ? suspended : !suspended));
   }).sort((a, b) => {
     if (sortBy === "name") return String(a.full_name || a.email).localeCompare(String(b.full_name || b.email), "fr");
-    if (sortBy === "coins") return numberValue(profiles.find(profile => profile.created_by_id === b.id)?.coins) - numberValue(profiles.find(profile => profile.created_by_id === a.id)?.coins);
+    if (sortBy === "coins") return numberValue(profileByUserId.get(b.id)?.coins) - numberValue(profileByUserId.get(a.id)?.coins);
     return new Date(b.created_date || 0) - new Date(a.created_date || 0);
-  }), [users, profiles, search, filterRole, filterStatus, sortBy]);
+  }), [users, profileByUserId, search, filterRole, filterStatus, sortBy]);
 
   const selectedUser = users.find(item => item.id === selectedId);
-  const orphanProfiles = profiles.filter(profile => !users.some(item => item.id === profile.created_by_id));
+  const orphanProfiles = useMemo(() => profiles.filter(profile => !userIds.has(profile.created_by_id)), [profiles, userIds]);
 
   const openEditor = user => {
     const profile = getProfile(user.id);
@@ -80,16 +83,14 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
 
   const saveUser = async () => {
     if (!selectedUser || saving) return;
-    const profile = getProfile(selectedUser.id);
     setSaving(true);
     try {
-      await appClient.entities.User.update(selectedUser.id, {
+      await appClient.functions.invoke("adminUpdatePlayerAccount", {
+        user_id: selectedUser.id,
         full_name: form.full_name.trim(), role: form.role, status: form.status,
         suspended_until: form.status === "suspended" && form.suspended_until ? new Date(form.suspended_until).toISOString() : null,
         suspension_reason: form.status === "suspended" ? form.suspension_reason.trim() : null,
-      });
-      if (profile) await appClient.entities.PlayerProfile.update(profile.id, {
-        display_name: form.full_name.trim(), coins: numberValue(form.coins), gems: numberValue(form.gems),
+        coins: numberValue(form.coins), gems: numberValue(form.gems),
         xp: numberValue(form.xp), talent_points: numberValue(form.talent_points),
       });
       await onUserUpdate?.();
@@ -144,11 +145,11 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
     if (!selectedUser || !giftCardId || saving) return;
     setSaving(true);
     try {
-      const response = await appClient.functions.invoke("adminGrantPlayerCard", { user_id: selectedUser.id, card_definition_id: giftCardId, quantity: numberValue(giftCardQuantity) || 1 });
+      const response = await appClient.functions.invoke("adminGrantPlayerCard", { user_id: selectedUser.id, card_definition_id: giftCardId, quantity: numberValue(giftCardQuantity) || 1, delivery_mode: "direct" });
       await Promise.all([refetchPlayerControl(), onUserUpdate?.()]);
       await queryClient.invalidateQueries({ queryKey: ["cards"] });
-      toast({ title: "Cadeau créé", description: `${response.data.card.name} attend le joueur dans son coffre cadeaux.` });
-    } catch (error) { toast({ title: "Cadeau impossible", description: error.message, variant: "destructive" }); }
+      toast({ title: "Carte ajoutée", description: `${response.data.card.name} est maintenant dans l'inventaire du joueur.` });
+    } catch (error) { toast({ title: "Ajout impossible", description: error.message, variant: "destructive" }); }
     finally { setSaving(false); }
   };
 
@@ -168,11 +169,11 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
     if (!selectedUser || !giftFrameId || saving) return;
     setSaving(true);
     try {
-      const response = await appClient.functions.invoke("adminGrantPlayerFrame", { user_id: selectedUser.id, frame_id: giftFrameId });
+      const response = await appClient.functions.invoke("adminGrantPlayerFrame", { user_id: selectedUser.id, frame_id: giftFrameId, delivery_mode: "direct" });
       await refetchPlayerControl();
       await queryClient.invalidateQueries({ queryKey: ["myFrames"] });
-      toast({ title: "Cadeau créé", description: `${response.data.frame.name} attend le joueur dans son coffre cadeaux.` });
-    } catch (error) { toast({ title: "Cadeau impossible", description: error.message, variant: "destructive" }); }
+      toast({ title: "Cadre ajouté", description: `${response.data.frame.name} est maintenant dans la collection du joueur.` });
+    } catch (error) { toast({ title: "Ajout impossible", description: error.message, variant: "destructive" }); }
     finally { setSaving(false); }
   };
 
