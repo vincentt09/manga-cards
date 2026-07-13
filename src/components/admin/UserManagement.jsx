@@ -37,6 +37,7 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
   const [giftCardId, setGiftCardId] = useState("");
   const [giftCardQuantity, setGiftCardQuantity] = useState(1);
   const [giftFrameId, setGiftFrameId] = useState("");
+  const [economyForm, setEconomyForm] = useState({ field: "coins", mode: "add", value: "", reason: "" });
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: cardDefinitions = [] } = useQuery({ queryKey: ["admin_user_card_catalog"], queryFn: () => appClient.entities.CardDefinition.list("anime", 1000) });
@@ -207,6 +208,26 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
     finally { setSaving(false); }
   };
 
+  const adjustEconomy = async () => {
+    if (!selectedUser || saving || !economyForm.value) return;
+    setSaving(true);
+    try {
+      const response = await appClient.functions.invoke("adminAdjustPlayerEconomy", {
+        user_id: selectedUser.id,
+        field: economyForm.field,
+        mode: economyForm.mode,
+        value: Number(economyForm.value),
+        reason: economyForm.reason.trim() || undefined,
+      });
+      const data = response.data;
+      setForm(current => ({ ...current, [data.field]: data.after }));
+      setEconomyForm(current => ({ ...current, value: "", reason: "" }));
+      await Promise.all([refetchPlayerControl(), onUserUpdate?.(), queryClient.invalidateQueries({ queryKey: ["admin_audit"] })]);
+      toast({ title: "Économie joueur modifiée", description: `${data.field} : ${numberValue(data.before).toLocaleString("fr-FR")} → ${numberValue(data.after).toLocaleString("fr-FR")}` });
+    } catch (error) { toast({ title: "Modification impossible", description: error.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row">
@@ -256,6 +277,19 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
           {form.status === "suspended" && <label className="text-xs font-semibold">Fin de suspension (optionnelle)<Input type="datetime-local" className="mt-1.5" value={form.suspended_until || ""} onChange={event => setForm(current => ({ ...current, suspended_until: event.target.value }))} /></label>}
           {form.status === "suspended" && <label className="text-xs font-semibold sm:col-span-2">Motif<Input className="mt-1.5" placeholder="Message affiché au joueur" value={form.suspension_reason || ""} onChange={event => setForm(current => ({ ...current, suspension_reason: event.target.value }))} /></label>}
         </div>
+        <section className="space-y-3 rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 font-bold"><Coins className="h-4 w-4 text-yellow-300" />Contrôle économie joueur</h3><p className="text-xs text-muted-foreground">Ajoute, retire ou fixe précisément les ressources avec une trace dans le journal admin.</p></div><div className="flex flex-wrap gap-2 text-[10px] font-bold"><span className="rounded-full bg-yellow-500/10 px-2 py-1 text-yellow-300">{numberValue(form.coins).toLocaleString("fr-FR")} pièces</span><span className="rounded-full bg-cyan-500/10 px-2 py-1 text-cyan-300">{numberValue(form.gems).toLocaleString("fr-FR")} gemmes</span><span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-300">{numberValue(form.xp).toLocaleString("fr-FR")} XP</span></div></div>
+          <div className="grid gap-2 lg:grid-cols-[140px_130px_1fr_1.4fr_auto]">
+            <select aria-label="Ressource" value={economyForm.field} onChange={event => setEconomyForm(current => ({ ...current, field: event.target.value }))} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="coins">Pièces</option><option value="gems">Gemmes</option><option value="xp">XP</option><option value="talent_points">Talents</option></select>
+            <select aria-label="Mode" value={economyForm.mode} onChange={event => setEconomyForm(current => ({ ...current, mode: event.target.value }))} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="add">Ajouter/retirer</option><option value="set">Définir</option></select>
+            <Input type="number" placeholder={economyForm.mode === "add" ? "ex: 1000 ou -500" : "nouvelle valeur"} value={economyForm.value} onChange={event => setEconomyForm(current => ({ ...current, value: event.target.value }))} />
+            <Input placeholder="Raison admin optionnelle" value={economyForm.reason} onChange={event => setEconomyForm(current => ({ ...current, reason: event.target.value }))} />
+            <Button disabled={saving || !economyForm.value} onClick={adjustEconomy}><Save className="mr-1.5 h-4 w-4" />Appliquer</Button>
+          </div>
+          <div className="max-h-36 overflow-y-auto rounded-xl border border-border/60 bg-background/50 p-2">
+            {playerControl?.transactions?.length ? playerControl.transactions.slice(0, 8).map(tx => <div key={tx.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary/40"><div className="min-w-0"><p className="truncate font-semibold">{tx.description || tx.type}</p><p className="text-[10px] text-muted-foreground">{new Date(tx.created_date).toLocaleString("fr-FR")}</p></div><div className="shrink-0 text-right"><p className={Number(tx.amount || 0) >= 0 ? "text-yellow-300" : "text-red-300"}>{Number(tx.amount || 0) ? `${Number(tx.amount) > 0 ? "+" : ""}${Number(tx.amount).toLocaleString("fr-FR")} pièces` : ""}</p>{Number(tx.gems_amount || 0) !== 0 && <p className="text-cyan-300">{Number(tx.gems_amount) > 0 ? "+" : ""}{Number(tx.gems_amount).toLocaleString("fr-FR")} gemmes</p>}</div></div>) : <p className="p-3 text-xs text-muted-foreground">Aucune transaction récente.</p>}
+          </div>
+        </section>
         <section className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 font-bold"><Gift className="h-4 w-4 text-primary" />Offrir une carte</h3><p className="text-xs text-muted-foreground">Catalogue complet, événements et collectors inclus.</p></div><span className="text-xs text-muted-foreground">{playerControl?.stats?.unique_cards || 0} uniques · {playerControl?.stats?.total_copies || 0} exemplaires</span></div>
           <div className="grid gap-2 sm:grid-cols-[1fr_90px_auto]">

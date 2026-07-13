@@ -1289,13 +1289,13 @@ async function runFunction(req, res, name, db, user) {
       if (!targetUser || !targetProfile) return null;
       const unreadCount = (entities.DirectMessage || []).filter(message => message.sender_id === targetId && message.recipient_id === user.id && !message.read_at).length;
       const lastMessage = (entities.DirectMessage || []).filter(message => [message.sender_id, message.recipient_id].includes(user.id) && [message.sender_id, message.recipient_id].includes(targetId)).sort((a, b) => new Date(b.created_date) - new Date(a.created_date))[0];
-      return { id: relation.id, user_id: targetId, display_name: targetProfile.display_name || targetUser.full_name || "Joueur", avatar_url: targetProfile.avatar_url || targetUser.avatar_url || null, status_text: targetProfile.status_text || "", status_emoji: targetProfile.status_emoji || "", presence_style: targetProfile.presence_style || "invisible", player_level: getLevelFromXp(Number(targetProfile.xp || 0)).level, since: relation.accepted_at || relation.created_date, unread_count: unreadCount, last_message_at: lastMessage?.created_date || null };
+      return { id: relation.id, user_id: targetId, display_name: targetProfile.display_name || targetUser.full_name || "Joueur", avatar_url: targetProfile.avatar_url || targetUser.avatar_url || null, status_text: targetProfile.status_text || "", status_emoji: targetProfile.status_emoji || "", presence_style: targetProfile.presence_style || "invisible", player_level: getLevelFromXp(Number(targetProfile.xp || 0)).level, since: relation.accepted_at || relation.created_date, unread_count: unreadCount, last_message_at: lastMessage?.created_date || null, last_message_preview: lastMessage?.message ? String(lastMessage.message).slice(0, 80) : "" };
     };
     const accepted = friendships.filter(row => row.status === "accepted" && [row.requester_id, row.recipient_id].includes(user.id));
     const incoming = friendships.filter(row => row.status === "pending" && row.recipient_id === user.id);
     const outgoing = friendships.filter(row => row.status === "pending" && row.requester_id === user.id);
     result = {
-      friends: accepted.map(row => decorate(row.requester_id === user.id ? row.recipient_id : row.requester_id, row)).filter(Boolean).sort((a, b) => a.display_name.localeCompare(b.display_name, "fr")),
+      friends: accepted.map(row => decorate(row.requester_id === user.id ? row.recipient_id : row.requester_id, row)).filter(Boolean).sort((a, b) => Number(b.unread_count || 0) - Number(a.unread_count || 0) || new Date(b.last_message_at || b.since || 0) - new Date(a.last_message_at || a.since || 0) || a.display_name.localeCompare(b.display_name, "fr")),
       incoming: incoming.map(row => decorate(row.requester_id, row)).filter(Boolean),
       outgoing: outgoing.map(row => decorate(row.recipient_id, row)).filter(Boolean),
     };
@@ -1303,7 +1303,11 @@ async function runFunction(req, res, name, db, user) {
     const query = String(input.query || "").replace(/\s+/g, " ").trim().toLocaleLowerCase("fr");
     if (query.length < 2) return json(res, 400, { message: "Entre au moins 2 caractères." });
     const friendships = entities.Friendship || [];
-    result = (entities.PlayerProfile || []).filter(candidate => candidate.created_by_id !== user.id && String(candidate.display_name || "").toLocaleLowerCase("fr").includes(query)).slice(0, 20).map(candidate => {
+    result = (entities.PlayerProfile || []).filter(candidate => {
+      if (candidate.created_by_id === user.id) return false;
+      const targetUser = db.users.find(row => row.id === candidate.created_by_id);
+      return `${candidate.display_name || ""} ${targetUser?.full_name || ""} ${targetUser?.email || ""}`.toLocaleLowerCase("fr").includes(query);
+    }).slice(0, 20).map(candidate => {
       const targetUser = db.users.find(row => row.id === candidate.created_by_id);
       const relation = friendships.find(row => [row.requester_id, row.recipient_id].includes(user.id) && [row.requester_id, row.recipient_id].includes(candidate.created_by_id));
       let relationStatus = "none";
@@ -1318,12 +1322,19 @@ async function runFunction(req, res, name, db, user) {
     if (!db.users.some(candidate => candidate.id === targetId)) return json(res, 404, { message: "Joueur introuvable." });
     entities.Friendship ||= [];
     const existing = entities.Friendship.find(row => [row.requester_id, row.recipient_id].includes(user.id) && [row.requester_id, row.recipient_id].includes(targetId));
-    if (existing?.status === "accepted") return json(res, 409, { message: "Vous êtes déjà amis." });
-    if (existing?.status === "blocked") return json(res, 403, { message: "Cette demande ne peut pas être envoyée." });
-    if (existing?.status === "pending") return json(res, 409, { message: existing.requester_id === user.id ? "Demande déjà envoyée." : "Ce joueur t’a déjà envoyé une demande." });
-    const now = new Date().toISOString();
-    const friendship = { id: id(), requester_id: user.id, recipient_id: targetId, status: "pending", created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now };
-    entities.Friendship.push(friendship); result = friendship;
+    let acceptedExistingRequest = false;
+    if (existing?.status === "pending" && existing.recipient_id === user.id) {
+      existing.status = "accepted"; existing.accepted_at = new Date().toISOString(); existing.updated_date = existing.accepted_at; result = existing;
+      acceptedExistingRequest = true;
+    }
+    if (!acceptedExistingRequest && existing?.status === "accepted") return json(res, 409, { message: "Vous êtes déjà amis." });
+    if (!acceptedExistingRequest && existing?.status === "blocked") return json(res, 403, { message: "Cette demande ne peut pas être envoyée." });
+    if (!acceptedExistingRequest && existing?.status === "pending") return json(res, 409, { message: existing.requester_id === user.id ? "Demande déjà envoyée." : "Ce joueur t’a déjà envoyé une demande." });
+    if (!acceptedExistingRequest) {
+      const now = new Date().toISOString();
+      const friendship = { id: id(), requester_id: user.id, recipient_id: targetId, status: "pending", created_by_id: user.id, created_by: user.email, created_date: now, updated_date: now };
+      entities.Friendship.push(friendship); result = friendship;
+    }
   } else if (name === "manageFriendship") {
     const friendship = (entities.Friendship || []).find(row => row.id === input.friendship_id && [row.requester_id, row.recipient_id].includes(user.id));
     if (!friendship) return json(res, 404, { message: "Relation introuvable." });
@@ -1524,6 +1535,34 @@ async function runFunction(req, res, name, db, user) {
     }
     recordAdminAudit(db, user, "economy_global_distribution", null, { currency, amount, players: (entities.PlayerProfile || []).length });
     result = { currency, amount, players: (entities.PlayerProfile || []).length };
+  } else if (name === "adminAdjustPlayerEconomy") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
+    if (!target) return json(res, 404, { message: "Utilisateur introuvable." });
+    const targetProfile = ensureUserProfile(db, target);
+    const field = String(input.field || "");
+    const mode = String(input.mode || "add");
+    const allowedFields = new Set(["coins", "gems", "xp", "talent_points"]);
+    const allowedModes = new Set(["add", "set"]);
+    if (!allowedFields.has(field) || !allowedModes.has(mode)) return json(res, 400, { message: "Modification économique invalide." });
+    const maximum = field === "gems" ? 1_000_000 : field === "talent_points" ? 100_000 : 1_000_000_000;
+    const value = Math.trunc(Number(input.value || 0));
+    if (!Number.isFinite(value) || Math.abs(value) > maximum) return json(res, 400, { message: `Montant invalide (maximum ${maximum.toLocaleString("fr-FR")}).` });
+    const before = Math.max(0, Math.trunc(Number(targetProfile[field] || 0)));
+    const after = mode === "set" ? Math.max(0, value) : Math.max(0, before + value);
+    const delta = after - before;
+    targetProfile[field] = after;
+    targetProfile.updated_date = new Date().toISOString();
+    entities.Transaction ||= [];
+    const label = { coins: "pièces", gems: "gemmes", xp: "XP", talent_points: "points de talent" }[field];
+    entities.Transaction.push({
+      id: id(), type: "admin_player_economy", description: String(input.reason || `Ajustement admin : ${delta >= 0 ? "+" : ""}${delta} ${label}`).slice(0, 180),
+      amount: field === "coins" ? delta : 0, gems_amount: field === "gems" ? delta : 0,
+      xp_amount: field === "xp" ? delta : 0, talent_points_amount: field === "talent_points" ? delta : 0,
+      created_by_id: target.id, created_by: target.email, admin_id: user.id, admin_email: user.email, created_date: new Date().toISOString(),
+    });
+    recordAdminAudit(db, user, "player_economy_adjusted", target, { field, mode, before, after, delta, reason: String(input.reason || "").slice(0, 180) });
+    result = { field, mode, before, after, delta, profile: targetProfile };
   } else if (name === "adminUpdatePlayerAccount") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const target = db.users.find((candidate) => candidate.id === String(input.user_id || ""));
@@ -1568,13 +1607,14 @@ async function runFunction(req, res, name, db, user) {
       ...owned,
       frame: (entities.CardFrame || []).find((frame) => frame.id === owned.frame_id) || null,
     }));
-    const pendingGifts = (entities.PlayerGift || []).filter((item) => item.created_by_id === target.id && item.status !== "claimed" && item.status !== "cancelled").map((gift) => ({
+    const pendingGifts = (entities.PlayerGift || []).filter((item) => (item.recipient_id === target.id || item.created_by_id === target.id) && item.status !== "claimed" && item.status !== "cancelled").map((gift) => ({
       ...gift,
       card: gift.kind === "card" ? resolvedCard(db, { ...((entities.CardDefinition || []).find((card) => card.id === gift.card_definition_id) || {}), card_definition_id: gift.card_definition_id }) : null,
       frame: gift.kind === "frame" ? (entities.CardFrame || []).find((frame) => frame.id === gift.frame_id) || null : null,
     }));
+    const transactions = (entities.Transaction || []).filter((item) => item.created_by_id === target.id).sort((a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0)).slice(0, 50);
     result = {
-      user: publicUser(target), profile: targetProfile || null, cards, frames: ownedFrames, gifts: pendingGifts,
+      user: publicUser(target), profile: targetProfile || null, cards, frames: ownedFrames, gifts: pendingGifts, transactions,
       stats: { unique_cards: cards.length, total_copies: cards.reduce((sum, card) => sum + Math.max(1, Number(card.duplicates || 1)), 0), frames: ownedFrames.length, gifts: pendingGifts.length },
     };
   } else if (name === "adminGrantPlayerCard" && input.delivery_mode !== "direct") {
@@ -2859,6 +2899,8 @@ async function runFunction(req, res, name, db, user) {
                 ? { entities: ["CardDefinition", "CardImageOverride"] }
                 : name === "adminGrantCurrencyAll"
                   ? { entities: ["PlayerProfile", "Transaction", "AdminAudit"] }
+                  : name === "adminAdjustPlayerEconomy"
+                    ? { entities: ["PlayerProfile", "Transaction", "AdminAudit"] }
                   : name === "adminUpdatePlayerAccount"
                     ? { auth: ["users"], entities: ["PlayerProfile", "Card", "PlayerFrame", "AdminAudit"] }
                     : name === "adminRepairAllPlayers"
