@@ -420,14 +420,18 @@ const syncMongoCollection = async (collection, rows, key = "id") => {
   await collection.deleteMany(ids.length ? { [key]: { $nin: ids } } : {});
 };
 const syncMongoPlayerRows = async (collection, rows, userId, key = "id") => {
-  const ownedRows = (rows || []).filter((row) => row.created_by_id === userId);
+  const ownsUserReference = (row) => USER_REFERENCE_FIELDS.some((field) => row?.[field] === userId);
+  const ownedRows = (rows || []).filter((row) => ownsUserReference(row));
   if (ownedRows.length) {
     await collection.bulkWrite(ownedRows.map((row) => ({
       replaceOne: { filter: { [key]: row[key] }, replacement: row, upsert: true },
     })), { ordered: false });
   }
   const ids = ownedRows.map((row) => row[key]).filter(Boolean);
-  await collection.deleteMany({ created_by_id: userId, ...(ids.length ? { [key]: { $nin: ids } } : {}) });
+  await collection.deleteMany({
+    $or: USER_REFERENCE_FIELDS.map((field) => ({ [field]: userId })),
+    ...(ids.length ? { [key]: { $nin: ids } } : {}),
+  });
 };
 const upsertMongoRows = async (collection, rows, key = "id") => {
   const safeRows = (rows || []).filter((row) => row?.[key]);
@@ -507,6 +511,11 @@ const readDb = async () => {
     await syncMongoCollection(remote.collection(entityCollectionName("PlayerProfile")), db.entities.PlayerProfile);
     await syncMongoCollection(remote.collection("auth_sessions"), db.sessions, "token");
     await syncMongoCollection(remote.collection("auth_reset_tokens"), db.resetTokens, "token");
+    if (repairedUsers.length) {
+      await Promise.all(Object.entries(db.entities)
+        .filter(([name]) => name !== "PlayerProfile")
+        .map(([name, rows]) => syncMongoCollection(remote.collection(entityCollectionName(name)), rows || [])));
+    }
     console.log(`${repairedUsers.length} compte(s) et ${repairedProfiles.length} profil(s) joueur en double fusionné(s).`);
   }
   db.entities.CardDefinition ||= [];
@@ -1202,11 +1211,16 @@ async function entityRoutes(req, res, pathname, searchParams, db, user) {
 async function runFunction(req, res, name, db, user) {
   const input = await body(req);
   const entities = db.entities;
+  const userEmail = String(user.email || "").trim().toLowerCase();
   const profileIdsBeforeRepair = new Set((entities.PlayerProfile || []).map((item) => item.id));
+  const profileNeedsRelinkBeforeRepair = (entities.PlayerProfile || []).some((item) => item.created_by_id !== user.id && String(item.created_by || "").trim().toLowerCase() === userEmail);
+  const ownedRowsNeedRelinkBeforeRepair = ["Card", "PlayerFrame"].some((name) => (entities[name] || []).some((item) => item.created_by_id !== user.id && String(item.created_by || "").trim().toLowerCase() === userEmail));
   ensureUserProfile(db, user);
   let profile = (entities.PlayerProfile || []).find((item) => item.created_by_id === user.id);
   let forceWrite = (entities.PlayerProfile || []).some((item) => !profileIdsBeforeRepair.has(item.id))
-    || (entities.PlayerProfile || []).length !== profileIdsBeforeRepair.size;
+    || (entities.PlayerProfile || []).length !== profileIdsBeforeRepair.size
+    || profileNeedsRelinkBeforeRepair
+    || ownedRowsNeedRelinkBeforeRepair;
   let result;
 
   if (name === "ensurePlayerProfile") {
@@ -1904,11 +1918,10 @@ async function runFunction(req, res, name, db, user) {
     for (const entityName of playerEntities) {
       const rows = entities[entityName] || [];
       const kept = rows.filter((row) => {
-        if (row.created_by_id && !validUserIds.has(row.created_by_id)) return false;
+        for (const field of USER_REFERENCE_FIELDS) {
+          if (row[field] && row[field] !== "system" && !validUserIds.has(row[field])) return false;
+        }
         if (!row.created_by_id && row.created_by && !validEmails.has(row.created_by)) return false;
-        if (row.seller_id && row.seller_id !== "system" && !validUserIds.has(row.seller_id)) return false;
-        if (row.requester_id && !validUserIds.has(row.requester_id)) return false;
-        if (row.recipient_id && !validUserIds.has(row.recipient_id)) return false;
         return true;
       });
       removed[entityName] = rows.length - kept.length;
@@ -1924,7 +1937,7 @@ async function runFunction(req, res, name, db, user) {
     if (target.id === user.id) return json(res, 400, { message: "Utilise un compte joueur distinct pour tester une réinitialisation." });
     const targetProfile = (entities.PlayerProfile || []).find((item) => item.created_by_id === target.id);
     if (!targetProfile) return json(res, 404, { message: "Profil joueur introuvable." });
-    const playerEntities = new Set(["Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "DirectMessage", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
+    const playerEntities = new Set(["Card", "PlayerFrame", "PlayerGift", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "DirectMessage", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
     const removed = {};
     for (const entityName of playerEntities) {
       const rows = entities[entityName] || [];
@@ -1937,7 +1950,7 @@ async function runFunction(req, res, name, db, user) {
           }
         }
       }
-      const kept = rows.filter((row) => ![row.created_by_id, row.user_id, row.owner_id, row.seller_id].includes(target.id) && row.created_by !== target.email);
+      const kept = rows.filter((row) => !USER_REFERENCE_FIELDS.some((field) => row[field] === target.id) && row.created_by !== target.email);
       removed[entityName] = rows.length - kept.length;
       entities[entityName] = kept;
     }
