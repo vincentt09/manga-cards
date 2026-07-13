@@ -29,9 +29,8 @@ import TitlesManager from "@/components/admin/TitlesManager";
 const TABS = [
   { id: "control",   label: "Contrôle total", icon: Gauge },
   { id: "stats",     label: "Vue d'ensemble", icon: BarChart3 },
-  { id: "users",     label: "Utilisateurs",   icon: Users },
+  { id: "users",     label: "Utilisateurs & joueurs",   icon: Users },
   { id: "inventory", label: "Stocks & Ventes",icon: Package },
-  { id: "players",   label: "Joueurs",        icon: Shield },
   { id: "cards",     label: "Cartes",         icon: ImageIcon },
   { id: "collections", label: "Collections",  icon: Package },
   { id: "events",    label: "Événements",     icon: Zap },
@@ -684,7 +683,6 @@ export default function Admin() {
             )}
             {tab === "users"    && <UserManagement users={users} profiles={profiles} currentUser={user} onUserUpdate={() => Promise.all([queryClient.invalidateQueries({ queryKey: ["admin_users"] }), queryClient.invalidateQueries({ queryKey: ["admin_profiles"] }), queryClient.invalidateQueries({ queryKey: ["admin_audit"] })])} />}
             {tab === "inventory" && <InventoryDashboard listings={listings} profiles={profiles} transactions={transactions} />}
-            {tab === "players"  && <PlayersTab profiles={profiles} users={users} onEditCoins={handleEditCoins} onResetPlayer={handleResetPlayer} />}
             {tab === "cards"    && <CardManager cardDefinitions={cardDefinitions} overrides={overrides} onSave={handleSaveImageOverride} onReset={handleResetImageOverride} />}
             {tab === "collections" && <AnimeCollectionsManager />}
             {tab === "events"   && <DropEventsManager />}

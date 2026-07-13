@@ -230,6 +230,11 @@ export default function UserManagement({ users, profiles, currentUser, onUserUpd
 
   return (
     <div className="space-y-6">
+      <section className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+        <p className="text-[10px] font-black uppercase tracking-wider text-primary">Fiche unique</p>
+        <h2 className="mt-1 font-display text-xl font-black">Utilisateurs + joueurs réunis</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Un seul onglet pour gérer compte, rôle, pseudo, économie, cartes, cadres, cadeaux, inventaire et réparations.</p>
+      </section>
       <div className="flex flex-col gap-3 lg:flex-row">
         <div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Rechercher un pseudo ou un e-mail…" value={search} onChange={event => setSearch(event.target.value)} className="pl-11 h-11 bg-secondary/30" /></div>
         <div className="grid grid-cols-2 gap-2 sm:flex">

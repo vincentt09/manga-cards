@@ -153,6 +153,29 @@ export default function AnimeCollectionsManager() {
         </Button>
       </div>
 
+      <section className="grid gap-3 md:grid-cols-4">
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+          <p className="text-[10px] font-black uppercase tracking-wider text-primary">Booster</p>
+          <p className="mt-1 text-sm font-bold">Nom + prix + devise</p>
+          <p className="mt-1 text-xs text-muted-foreground">C’est ce qui apparaît dans la boutique booster.</p>
+        </div>
+        <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+          <p className="text-[10px] font-black uppercase tracking-wider text-cyan-300">Drop</p>
+          <p className="mt-1 text-sm font-bold">1 à 10 cartes</p>
+          <p className="mt-1 text-xs text-muted-foreground">Nombre de cartes obtenues à chaque ouverture.</p>
+        </div>
+        <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+          <p className="text-[10px] font-black uppercase tracking-wider text-yellow-300">Catalogue</p>
+          <p className="mt-1 text-sm font-bold">Ajoute les personnages</p>
+          <p className="mt-1 text-xs text-muted-foreground">Chaque personnage peut avoir 1 à 4 versions.</p>
+        </div>
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+          <p className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Événement</p>
+          <p className="mt-1 text-sm font-bold">Gratuit ou limité</p>
+          <p className="mt-1 text-xs text-muted-foreground">Idéal pour cadeaux, beta testeurs ou collectors.</p>
+        </div>
+      </section>
+
       {showForm && (
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="border-border bg-card">

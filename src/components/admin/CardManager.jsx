@@ -231,6 +231,24 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
         </Button>
       </div>
 
+      <section className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+          <p className="text-[10px] font-black uppercase tracking-wider text-primary">1 · Booster</p>
+          <h3 className="mt-1 text-sm font-bold">Choisis la collection</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Chaque carte rattachée à une collection devient disponible dans son booster.</p>
+        </div>
+        <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+          <p className="text-[10px] font-black uppercase tracking-wider text-cyan-300">2 · Versions</p>
+          <h3 className="mt-1 text-sm font-bold">1 à 4 raretés</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Tu peux créer seulement Normale, ou les 4 versions jusqu’à Manga God.</p>
+        </div>
+        <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+          <p className="text-[10px] font-black uppercase tracking-wider text-yellow-300">3 · Design</p>
+          <h3 className="mt-1 text-sm font-bold">Upload stable</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Format conseillé : carte verticale 500×700 ou plus, PNG/JPG/WEBP.</p>
+        </div>
+      </section>
+
       {collections.length > 0 ? (
         <section className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -279,6 +297,13 @@ export default function CardManager({ cardDefinitions = CARD_POOL, overrides, on
 
       {showAddCharacter && (
         <form onSubmit={handleAddCharacter} className="rounded-2xl border border-primary/30 bg-primary/5 p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2 rounded-xl border border-white/10 bg-background/50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-wider text-primary">Création guidée</p>
+            <h3 className="mt-1 text-base font-bold">Ajouter un personnage au catalogue</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sélectionne un booster pour que les cartes soient droppables dedans. Si tu ne choisis aucun booster, la carte reste liée à sa série.
+            </p>
+          </div>
           <div>
             <label className="text-xs font-semibold mb-1.5 block">Personnage</label>
             <Input name="name" placeholder="Ex. Madara Uchiha" required />
