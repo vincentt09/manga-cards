@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Users, Image as ImageIcon, BarChart3, Coins, Package, Layers,
-  Search, Crown, Trophy, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList, LockKeyhole, RefreshCw, Gauge
+  Search, Crown, Trophy, Trash2, AlertTriangle, TrendingUp, Activity, Zap, Save, X, ClipboardList, LockKeyhole, RefreshCw, Gauge, Wrench, CheckCircle2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ import TitlesManager from "@/components/admin/TitlesManager";
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 const TABS = [
+  { id: "control",   label: "Contrôle total", icon: Gauge },
   { id: "stats",     label: "Vue d'ensemble", icon: BarChart3 },
   { id: "users",     label: "Utilisateurs",   icon: Users },
   { id: "inventory", label: "Stocks & Ventes",icon: Package },
@@ -428,11 +429,121 @@ function AuditLog({ entries }) {
   );
 }
 
+function AdminControlDashboard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: dashboardResponse, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ["admin_control_dashboard"],
+    queryFn: () => appClient.functions.invoke("getAdminControlDashboard"),
+    refetchInterval: 25_000,
+  });
+  const dashboard = dashboardResponse?.data;
+  const refreshAll = (title, description) => {
+    queryClient.invalidateQueries({ queryKey: ["admin_control_dashboard"] });
+    queryClient.invalidateQueries({ queryKey: ["admin_users"] });
+    queryClient.invalidateQueries({ queryKey: ["admin_profiles"] });
+    queryClient.invalidateQueries({ queryKey: ["admin_cards"] });
+    queryClient.invalidateQueries({ queryKey: ["admin_audit"] });
+    toast({ title, description });
+  };
+  const repairAll = useMutation({
+    mutationFn: () => appClient.functions.invoke("adminRepairAllPlayers"),
+    onSuccess: response => refreshAll("Réparation globale terminée", `${response.data.profiles_created} profil(s), ${response.data.cards_relinked} carte(s), ${response.data.gifts_relinked} cadeau(x) réparés.`),
+    onError: error => toast({ title: "Réparation impossible", description: error.message, variant: "destructive" }),
+  });
+  const cleanup = useMutation({
+    mutationFn: () => appClient.functions.invoke("adminCleanupOrphanData"),
+    onSuccess: response => refreshAll("Nettoyage terminé", `${response.data.removed_total} élément(s) orphelin(s) supprimé(s).`),
+    onError: error => toast({ title: "Nettoyage impossible", description: error.message, variant: "destructive" }),
+  });
+  const backup = useMutation({
+    mutationFn: () => appClient.functions.invoke("createAdminBackup"),
+    onSuccess: response => refreshAll("Sauvegarde créée", `${Number(response.data.bytes || 0).toLocaleString("fr-FR")} octets sauvegardés dans MongoDB.`),
+    onError: error => toast({ title: "Sauvegarde impossible", description: error.message, variant: "destructive" }),
+  });
+  const format = value => Number(value || 0).toLocaleString("fr-FR");
+  const issueStyle = issue => issue.level === "danger" ? "border-red-500/35 bg-red-500/10 text-red-200" : issue.level === "warning" ? "border-amber-500/35 bg-amber-500/10 text-amber-100" : "border-emerald-500/25 bg-emerald-500/10 text-emerald-100";
+  const detailGroups = [
+    ["duplicate_user_emails", "E-mails doublons", item => `${item.email} ×${item.count}`],
+    ["users_without_profile", "Comptes sans profil", item => item.email || item.full_name || item.id],
+    ["profiles_without_user", "Profils orphelins", item => item.created_by || item.display_name || item.id],
+    ["dangling_rows", "Données orphelines", item => `${item.entity} · ${item.label}`],
+    ["broken_gifts", "Cadeaux cassés", item => `${item.kind || "cadeau"} · ${item.title || item.id}`],
+    ["cards_missing_definition", "Cartes sans modèle", item => `${item.anime || "?"} · ${item.name || item.id}`],
+    ["definitions_without_image", "Cartes sans design", item => `${item.anime || "?"} · ${item.name || item.id}`],
+    ["collections_without_cards", "Collections vides", item => `${item.name || item.id}`],
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="game-panel overflow-hidden rounded-3xl border border-primary/20 p-4 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Tour de contrôle</p>
+            <h2 className="mt-1 font-display text-2xl font-black sm:text-3xl">Santé complète du jeu</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Comptes, profils, inventaires, cadeaux, cartes, collections, économie et actions sensibles.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" disabled={isFetching} onClick={() => refetch()}><RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />Actualiser</Button>
+            <Button variant="outline" disabled={backup.isPending} onClick={() => backup.mutate()}><Save className="mr-2 h-4 w-4" />Sauvegarder</Button>
+            <Button disabled={repairAll.isPending} onClick={() => repairAll.mutate()}><Wrench className="mr-2 h-4 w-4" />Réparer joueurs</Button>
+            <Button variant="destructive" disabled={cleanup.isPending} onClick={() => window.confirm("Supprimer les données orphelines détectées ?") && cleanup.mutate()}><Trash2 className="mr-2 h-4 w-4" />Nettoyer</Button>
+          </div>
+        </div>
+        {isLoading ? <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-6">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-24 animate-pulse rounded-2xl bg-secondary/30" />)}</div> : (
+          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
+            {[
+              ["Utilisateurs", dashboard?.totals?.users, Users, "text-cyan-300"],
+              ["Profils", dashboard?.totals?.profiles, Shield, "text-primary"],
+              ["Cartes joueurs", dashboard?.totals?.cards, Layers, "text-violet-300"],
+              ["Modèles cartes", dashboard?.totals?.card_definitions, ImageIcon, "text-pink-300"],
+              ["Cadeaux attente", dashboard?.totals?.gifts_pending, Package, "text-amber-300"],
+              ["Pièces totales", dashboard?.totals?.coins, Coins, "text-yellow-300"],
+            ].map(([label, value, Icon, color]) => <div key={label} className="rounded-2xl border border-white/10 bg-black/20 p-3"><Icon className={`h-5 w-5 ${color}`} /><p className={`mt-3 break-all font-display text-xl font-black ${color}`}>{format(value)}</p><p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p></div>)}
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <section className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><h3 className="font-display text-lg font-bold">Alertes système</h3><p className="text-xs text-muted-foreground">Tout ce qui peut casser le côté joueur apparaît ici.</p></div>
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-[10px] font-bold text-primary">{dashboard?.generated_at ? new Date(dashboard.generated_at).toLocaleTimeString("fr-FR") : "—"}</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(dashboard?.issues || []).map(issue => <article key={issue.id} className={`rounded-xl border p-3 ${issueStyle(issue)}`}><div className="flex items-center justify-between gap-2">{issue.level === "healthy" ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <AlertTriangle className="h-4 w-4 text-amber-300" />}<strong className="font-display text-xl">{format(issue.count)}</strong></div><p className="mt-2 text-sm font-bold">{issue.label}</p><p className="mt-1 text-[11px] text-muted-foreground">{issue.detail}</p></article>)}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <h3 className="font-display text-lg font-bold">Joueurs à surveiller</h3>
+          <p className="mb-3 text-xs text-muted-foreground">Les plus gros soldes, pour contrôler l’économie.</p>
+          <div className="space-y-2">
+            {(dashboard?.rich_players || []).map((player, index) => <div key={`${player.user_id}-${index}`} className="flex items-center gap-3 rounded-xl bg-secondary/30 p-3"><span className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-xs font-black text-primary">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{player.name}</p><p className="truncate text-[11px] text-muted-foreground">{player.email} · {format(player.cards)} cartes</p></div><div className="text-right"><p className="text-xs font-black text-yellow-300">{format(player.coins)}</p><p className="text-[10px] text-cyan-300">{format(player.gems)} gemmes</p></div></div>)}
+            {!dashboard?.rich_players?.length && <p className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">Aucun joueur à afficher.</p>}
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <h3 className="font-display text-lg font-bold">Détails contrôlables</h3>
+        <p className="mb-4 text-xs text-muted-foreground">Aperçu des lignes problématiques avant réparation/nettoyage.</p>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {detailGroups.map(([key, title, labeler]) => {
+            const rows = dashboard?.details?.[key] || [];
+            return <article key={key} className="rounded-xl border border-border/70 bg-background/40 p-3"><div className="mb-2 flex items-center justify-between gap-2"><strong className="text-sm">{title}</strong><span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold">{rows.length}</span></div><div className="max-h-40 space-y-1 overflow-y-auto pr-1">{rows.slice(0, 8).map((item, index) => <p key={`${key}-${item.id || item.email || index}`} className="truncate rounded-lg bg-secondary/30 px-2 py-1.5 text-[11px] text-muted-foreground">{labeler(item)}</p>)}{!rows.length && <p className="rounded-lg bg-emerald-500/10 px-2 py-2 text-[11px] text-emerald-300">Rien à signaler.</p>}</div></article>;
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function Admin() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState("stats");
+  const [tab, setTab] = useState("control");
 
   const { data: profiles = [] } = useQuery({
     queryKey: ["admin_profiles"],
@@ -558,6 +669,7 @@ export default function Admin() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.2 }}
           >
+            {tab === "control"  && <AdminControlDashboard />}
             {tab === "stats"    && (
               <>
                 <GlobalStats profiles={profiles} cards={cards} transactions={transactions} users={users} listings={listings} />

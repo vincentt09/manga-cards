@@ -1909,11 +1909,85 @@ async function runFunction(req, res, name, db, user) {
       return { id: candidate.id, email: candidate.email, name: candidate.full_name, role: candidate.role, status: candidate.status || "active", chat_muted_until: candidate.chat_muted_until || null, coins: Number(playerProfile?.coins || 0), gems: Number(playerProfile?.gems || 0), cards: (entities.Card || []).filter((item) => item.created_by_id === candidate.id).length, transactions_24h: transactions.length, messages_24h: messages.length, reports, flags, risk: flags.length >= 2 ? "high" : flags.length ? "medium" : "low" };
     }).sort((a, b) => b.flags.length - a.flags.length || b.transactions_24h - a.transactions_24h);
     result = { players, pending_reports: pendingReports.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, 100) };
+  } else if (name === "getAdminControlDashboard") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const validUserIds = new Set(db.users.map((candidate) => candidate.id));
+    const validEmails = new Set(db.users.map((candidate) => String(candidate.email || "").trim().toLowerCase()));
+    const profiles = entities.PlayerProfile || [];
+    const cards = entities.Card || [];
+    const gifts = entities.PlayerGift || [];
+    const frames = entities.PlayerFrame || [];
+    const definitions = entities.CardDefinition || [];
+    const collections = entities.AnimeCollection || [];
+    const definitionIds = new Set(definitions.map((definition) => definition.id));
+    const frameIds = new Set((entities.CardFrame || []).map((frame) => frame.id));
+    const profileUserIds = new Set(profiles.map((profile) => profile.created_by_id).filter(Boolean));
+    const duplicateUserEmails = Object.entries(db.users.reduce((acc, candidate) => {
+      const email = String(candidate.email || "").trim().toLowerCase();
+      if (email) acc[email] = (acc[email] || 0) + 1;
+      return acc;
+    }, {})).filter(([, count]) => count > 1).map(([email, count]) => ({ email, count }));
+    const danglingRows = [];
+    for (const [entityName, rows] of Object.entries(entities)) {
+      if (!Array.isArray(rows) || entityName === "AdminAudit") continue;
+      for (const row of rows) {
+        const badFields = USER_REFERENCE_FIELDS.filter((field) => row[field] && row[field] !== "system" && !validUserIds.has(row[field]));
+        const emailOnlyBad = !row.created_by_id && row.created_by && !validEmails.has(String(row.created_by).trim().toLowerCase());
+        if (badFields.length || emailOnlyBad) danglingRows.push({ entity: entityName, id: row.id, bad_fields: badFields, label: row.name || row.title || row.message || row.card_name || row.id });
+      }
+    }
+    const brokenGifts = gifts.filter((gift) => gift.status !== "claimed" && gift.status !== "cancelled" && (
+      (gift.kind === "card" && !definitionIds.has(gift.card_definition_id))
+      || (gift.kind === "frame" && !frameIds.has(gift.frame_id))
+      || !validUserIds.has(gift.recipient_id || gift.created_by_id)
+    ));
+    const cardsMissingDefinition = cards.filter((card) => card.card_definition_id && !definitionIds.has(card.card_definition_id));
+    const definitionsWithoutImage = definitions.filter((definition) => definition.is_active !== false && !definition.image_url);
+    const collectionsWithoutCards = collections
+      .map((collection) => ({ id: collection.id, name: collection.name, cards: definitions.filter((definition) => definition.collection_id === collection.id && definition.is_active !== false).length }))
+      .filter((collection) => collection.cards === 0);
+    const usersWithoutProfile = db.users.filter((candidate) => !profileUserIds.has(candidate.id)).map(publicUser);
+    const profilesWithoutUser = profiles.filter((profile) => profile.created_by_id && !validUserIds.has(profile.created_by_id));
+    const richPlayers = profiles.map((profile) => {
+      const owner = db.users.find((candidate) => candidate.id === profile.created_by_id);
+      return { user_id: profile.created_by_id, name: profile.display_name || owner?.full_name || owner?.email || "Joueur", email: owner?.email || profile.created_by || "", coins: Number(profile.coins || 0), gems: Number(profile.gems || 0), xp: Number(profile.xp || 0), cards: cards.filter((card) => card.created_by_id === profile.created_by_id).length };
+    }).sort((a, b) => (b.coins + b.gems * 5000) - (a.coins + a.gems * 5000)).slice(0, 10);
+    const issueList = [
+      ["duplicate_users", "Comptes doublons", duplicateUserEmails.length, "Même e-mail présent plusieurs fois."],
+      ["users_without_profile", "Comptes sans profil", usersWithoutProfile.length, "Joueurs qui peuvent apparaître remis à zéro."],
+      ["profiles_without_user", "Profils orphelins", profilesWithoutUser.length, "Profils sans compte utilisateur valide."],
+      ["dangling_rows", "Données orphelines", danglingRows.length, "Cartes/cadeaux/messages/marché liés à d’anciens comptes."],
+      ["broken_gifts", "Cadeaux cassés", brokenGifts.length, "Cadeaux sans carte/cadre cible ou sans destinataire valide."],
+      ["cards_missing_definition", "Cartes sans définition", cardsMissingDefinition.length, "Cartes possédées dont le modèle n’existe plus."],
+      ["definitions_without_image", "Designs manquants", definitionsWithoutImage.length, "Cartes actives sans image uploadée."],
+      ["empty_collections", "Collections vides", collectionsWithoutCards.length, "Boosters/collections actifs sans cartes."],
+    ];
+    result = {
+      generated_at: new Date().toISOString(),
+      totals: {
+        users: db.users.length, profiles: profiles.length, cards: cards.length, card_definitions: definitions.length,
+        active_card_definitions: definitions.filter((definition) => definition.is_active !== false).length,
+        gifts_pending: gifts.filter((gift) => gift.status === "pending").length, frames_owned: frames.length,
+        transactions: (entities.Transaction || []).length,
+        coins: profiles.reduce((sum, profile) => sum + Number(profile.coins || 0), 0),
+        gems: profiles.reduce((sum, profile) => sum + Number(profile.gems || 0), 0),
+      },
+      issues: issueList.map(([id, label, count, detail]) => ({ id, label, count, detail, level: count ? (["duplicate_users", "dangling_rows", "broken_gifts"].includes(id) ? "danger" : "warning") : "healthy" })),
+      details: {
+        duplicate_user_emails: duplicateUserEmails.slice(0, 25), users_without_profile: usersWithoutProfile.slice(0, 25),
+        profiles_without_user: profilesWithoutUser.slice(0, 25), dangling_rows: danglingRows.slice(0, 50),
+        broken_gifts: brokenGifts.slice(0, 25), cards_missing_definition: cardsMissingDefinition.slice(0, 25),
+        legacy_cards: cards.filter((card) => !card.card_definition_id).slice(0, 25),
+        definitions_without_image: definitionsWithoutImage.slice(0, 25), collections_without_cards: collectionsWithoutCards.slice(0, 25),
+      },
+      rich_players: richPlayers,
+      recent_admin_events: (entities.AdminAudit || []).slice(0, 15),
+    };
   } else if (name === "adminCleanupOrphanData") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const validUserIds = new Set(db.users.map((candidate) => candidate.id));
-    const validEmails = new Set(db.users.map((candidate) => candidate.email));
-    const playerEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "DirectMessage", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
+    const validEmails = new Set(db.users.map((candidate) => String(candidate.email || "").trim().toLowerCase()));
+    const playerEntities = new Set(["PlayerProfile", "Card", "PlayerFrame", "PlayerGift", "PlayerTalent", "Quest", "Transaction", "PveBattle", "Friendship", "DirectMessage", "UserCosmetic", "ProfileCustomization", "MarketListing", "FrameListing", "Auction", "ChatMessage"]);
     const removed = {};
     for (const entityName of playerEntities) {
       const rows = entities[entityName] || [];
@@ -1921,7 +1995,7 @@ async function runFunction(req, res, name, db, user) {
         for (const field of USER_REFERENCE_FIELDS) {
           if (row[field] && row[field] !== "system" && !validUserIds.has(row[field])) return false;
         }
-        if (!row.created_by_id && row.created_by && !validEmails.has(row.created_by)) return false;
+        if (!row.created_by_id && row.created_by && !validEmails.has(String(row.created_by).trim().toLowerCase())) return false;
         return true;
       });
       removed[entityName] = rows.length - kept.length;
@@ -1930,6 +2004,34 @@ async function runFunction(req, res, name, db, user) {
     const removedTotal = Object.values(removed).reduce((sum, count) => sum + count, 0);
     recordAdminAudit(db, user, "orphan_cleanup", null, { removed_total: removedTotal, removed_by_entity: removed });
     result = { success: true, removed_total: removedTotal, removed };
+  } else if (name === "adminRepairAllPlayers") {
+    if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
+    const mergedUsers = repairDuplicateUsers(db);
+    const mergedProfilesBefore = repairDuplicatePlayerProfiles(db);
+    let profilesCreated = 0;
+    let cardsRelinked = 0;
+    let framesRelinked = 0;
+    let giftsRelinked = 0;
+    for (const target of db.users) {
+      const hadProfile = (entities.PlayerProfile || []).some((profile) => profile.created_by_id === target.id);
+      ensureUserProfile(db, target);
+      if (!hadProfile && (entities.PlayerProfile || []).some((profile) => profile.created_by_id === target.id)) profilesCreated += 1;
+      const email = String(target.email || "").trim().toLowerCase();
+      for (const card of entities.Card || []) {
+        if (card.created_by_id !== target.id && String(card.created_by || "").trim().toLowerCase() === email) { card.created_by_id = target.id; cardsRelinked += 1; }
+      }
+      for (const frame of entities.PlayerFrame || []) {
+        if (frame.created_by_id !== target.id && String(frame.created_by || "").trim().toLowerCase() === email) { frame.created_by_id = target.id; framesRelinked += 1; }
+      }
+      for (const gift of entities.PlayerGift || []) {
+        if (gift.recipient_id !== target.id && String(gift.recipient_email || gift.created_by || "").trim().toLowerCase() === email) { gift.recipient_id = target.id; giftsRelinked += 1; }
+      }
+    }
+    const stacked = stackOwnedCards(entities.Card || []);
+    if (stacked.changed) entities.Card = stacked.cards;
+    const mergedProfilesAfter = repairDuplicatePlayerProfiles(db);
+    recordAdminAudit(db, user, "global_player_repair", null, { duplicate_users: mergedUsers.length, duplicate_profiles: mergedProfilesBefore.length + mergedProfilesAfter.length, profiles_created: profilesCreated, cards_relinked: cardsRelinked, frames_relinked: framesRelinked, gifts_relinked: giftsRelinked, cards_stacked: stacked.changed });
+    result = { success: true, duplicate_users: mergedUsers.length, duplicate_profiles: mergedProfilesBefore.length + mergedProfilesAfter.length, profiles_created: profilesCreated, cards_relinked: cardsRelinked, frames_relinked: framesRelinked, gifts_relinked: giftsRelinked, cards_stacked: stacked.changed };
   } else if (name === "adminResetPlayer") {
     if (user.role !== "admin") return json(res, 403, { message: "Accès administrateur requis." });
     const target = db.users.find((candidate) => candidate.id === input.user_id);
@@ -2735,7 +2837,7 @@ async function runFunction(req, res, name, db, user) {
     "getMyGiftInbox", "getFriendsState", "searchFriendPlayers", "getPublicProfile",
     "getTitleCatalog", "getAdminEconomyOverview", "getAdminPlayerControl",
     "getAdminFrames", "getAdminBackups", "getAdminPlayerActivity", "getAdminSecurityOverview",
-    "getSystemMarket", "getLeaderboard",
+    "getAdminControlDashboard", "getSystemMarket", "getLeaderboard",
   ]);
   const targetedWrite = name === "openBooster"
     ? { userId: user.id, entities: ["PlayerProfile", "Card", "Quest", "Transaction", "PlayerFrame"] }
@@ -2759,6 +2861,8 @@ async function runFunction(req, res, name, db, user) {
                   ? { entities: ["PlayerProfile", "Transaction", "AdminAudit"] }
                   : name === "adminUpdatePlayerAccount"
                     ? { auth: ["users"], entities: ["PlayerProfile", "Card", "PlayerFrame", "AdminAudit"] }
+                    : name === "adminRepairAllPlayers"
+                      ? { auth: ["users"], entities: ["PlayerProfile", "Card", "PlayerFrame", "PlayerGift", "AdminAudit"] }
                   : null;
   const shouldWrite = forceWrite || (!readOnlyFunctions.has(name) && name !== "getMyCards");
   if (shouldWrite) await writeDb(db, targetedWrite);
